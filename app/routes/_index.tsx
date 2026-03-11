@@ -3,6 +3,7 @@ import { ActionIcon, Tooltip } from "@mantine/core";
 import { ChatInterface } from "~/components/ChatInterface";
 import { ConversationSidebar } from "~/components/ConversationSidebar";
 import { DailyNotes } from "~/components/DailyNotes";
+import { GitHubPRs } from "~/components/GitHubPRs";
 import { useConversations } from "~/hooks/useConversations";
 
 export default function Index() {
@@ -17,7 +18,7 @@ export default function Index() {
     deleteConversation,
   } = useConversations();
 
-  const [showNotes, setShowNotes] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(true);
 
   return (
     <div className="flex h-screen bg-[var(--mantine-color-dark-8)]">
@@ -37,28 +38,33 @@ export default function Index() {
           onSendMessage={sendMessage}
         />
       </div>
-      {/* Daily Notes Panel */}
-      {showNotes && (
-        <div className="w-[480px] flex-shrink-0 border-l border-[var(--mantine-color-dark-4)]">
-          <DailyNotes />
+      {/* Right sidebar: PRs + Daily Notes */}
+      {showSidebar && (
+        <div className="flex w-[480px] flex-shrink-0 flex-col border-l border-[var(--mantine-color-dark-4)]">
+          <div className="h-[40%] border-b border-[var(--mantine-color-dark-4)]">
+            <GitHubPRs />
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <DailyNotes />
+          </div>
         </div>
       )}
       {/* Toggle button */}
-      <Tooltip label={showNotes ? "Hide daily notes" : "Show daily notes"} position="left">
+      <Tooltip label={showSidebar ? "Hide sidebar" : "Show sidebar"} position="left">
         <ActionIcon
           variant="filled"
           color="dark.5"
           size="lg"
-          onClick={() => setShowNotes((v) => !v)}
+          onClick={() => setShowSidebar((v) => !v)}
           style={{
             position: "fixed",
-            bottom: 16,
-            right: showNotes ? 488 : 16,
+            top: 16,
+            right: showSidebar ? 488 : 16,
             zIndex: 100,
             border: "1px solid var(--mantine-color-dark-4)",
           }}
         >
-          <span style={{ fontSize: 16 }}>{showNotes ? "»" : "«"}</span>
+          <span style={{ fontSize: 16 }}>{showSidebar ? "\u00BB" : "\u00AB"}</span>
         </ActionIcon>
       </Tooltip>
     </div>

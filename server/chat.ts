@@ -10,6 +10,7 @@ import {
   appendMessages,
 } from "./conversations.js";
 import { dailyNotesRouter } from "./daily-notes.js";
+import { githubPRsRouter } from "./github-prs.js";
 
 const app = express();
 const PORT = process.env.CHAT_PORT ?? 3001;
@@ -20,6 +21,7 @@ const OBSIDIAN_VAULT_PATH =
 app.use(cors());
 app.use(express.json());
 app.use(dailyNotesRouter);
+app.use(githubPRsRouter);
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
