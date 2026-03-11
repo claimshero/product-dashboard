@@ -20,7 +20,10 @@ export interface ConversationRecord extends ConversationSummary {
   messages: Message[];
 }
 
-const STORE_DIR = path.join(os.homedir(), ".yangon");
+const STORE_DIR = path.join(
+  os.homedir(),
+  "Library/Application Support/work-dashboard"
+);
 const STORE_PATH = path.join(STORE_DIR, "conversations.json");
 
 function ensureStoreDir(): void {
