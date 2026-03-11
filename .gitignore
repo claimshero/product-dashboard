@@ -1,0 +1,14 @@
+node_modules/
+build/
+.react-router/
+.context/
+
+# Environment
+.env
+.env.*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
