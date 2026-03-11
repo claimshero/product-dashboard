@@ -44,11 +44,24 @@ export function useConversations() {
     }
   }, []);
 
-  const createNewConversation = useCallback(() => {
-    setActiveConversationId(null);
-    setMessages([]);
-    setCurrentStreamedText("");
-  }, []);
+  const createNewConversation = useCallback(async () => {
+    try {
+      const res = await fetch(getChatUrl("/api/conversations"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "New Chat" }),
+      });
+      if (res.ok) {
+        const conv = (await res.json()) as ConversationSummary & { messages?: Message[] };
+        setActiveConversationId(conv.id);
+        setMessages([]);
+        setCurrentStreamedText("");
+        await fetchConversations();
+      }
+    } catch (err) {
+      console.error("Failed to create conversation:", err);
+    }
+  }, [fetchConversations]);
 
   const deleteConversation = useCallback(
     async (id: string) => {
