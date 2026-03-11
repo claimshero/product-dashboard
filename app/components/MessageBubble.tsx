@@ -1,5 +1,5 @@
 import { Paper, Text } from "@mantine/core";
-import type { Message } from "./ChatInterface";
+import type { Message } from "~/types/chat";
 
 interface MessageBubbleProps {
   message: Message;

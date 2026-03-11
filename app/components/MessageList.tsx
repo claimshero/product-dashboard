@@ -1,6 +1,6 @@
 import { ScrollArea } from "@mantine/core";
 import { useEffect, useRef } from "react";
-import type { Message } from "./ChatInterface";
+import type { Message } from "~/types/chat";
 import { MessageBubble } from "./MessageBubble";
 
 interface MessageListProps {
