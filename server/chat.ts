@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { query } from "@anthropic-ai/claude-agent-sdk";
@@ -11,9 +12,10 @@ import {
 } from "./conversations.js";
 import { dailyNotesRouter } from "./daily-notes.js";
 import { githubPRsRouter } from "./github-prs.js";
+import { jiraRouter } from "./jira.js";
 
 const app = express();
-const PORT = process.env.CHAT_PORT ?? 3001;
+const PORT = process.env.CHAT_PORT ?? 4001;
 
 const OBSIDIAN_VAULT_PATH =
   "/Users/trevorr/Library/CloudStorage/GoogleDrive-richardson.trev@gmail.com/My Drive/Trevor/Second Brain/Second Brain";
@@ -22,6 +24,7 @@ app.use(cors());
 app.use(express.json());
 app.use(dailyNotesRouter);
 app.use(githubPRsRouter);
+app.use(jiraRouter);
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });

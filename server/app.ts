@@ -1,7 +1,7 @@
 import express from "express";
 
 const app = express();
-const PORT = process.env.PORT ?? 3000;
+const PORT = process.env.PORT ?? 4000;
 
 // Chrome DevTools probes this path — return 404 before it hits React Router's catch-all
 app.get("/.well-known/appspecific/com.chrome.devtools.json", (_req, res) => {

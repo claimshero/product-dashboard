@@ -3,7 +3,7 @@ import type { ConversationSummary, Message } from "~/types/chat";
 
 function getChatUrl(path: string): string {
   if (typeof window === "undefined") return path;
-  return `${window.location.protocol}//${window.location.hostname}:3001${path}`;
+  return `${window.location.protocol}//${window.location.hostname}:4001${path}`;
 }
 
 export function useConversations() {

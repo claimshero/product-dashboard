@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 
-const API_BASE = "http://localhost:3001";
+const API_BASE = "http://localhost:4001";
 
 export interface PullRequest {
   number: number;
