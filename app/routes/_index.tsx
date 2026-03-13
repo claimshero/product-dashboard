@@ -16,6 +16,7 @@ const DEFAULT_CHAT_WIDTH = 420;
 
 const STORAGE_KEY_CHAT_OPEN = "dashboard:chatOpen";
 const STORAGE_KEY_CHAT_WIDTH = "dashboard:chatWidth";
+const STORAGE_KEY_RIGHT_WIDTH = "dashboard:rightWidth";
 
 function useDragResize(
   direction: "left" | "right",
@@ -86,13 +87,15 @@ export default function Index() {
   const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
   const [chatOpen, setChatOpen] = useState(false);
 
-  // Persist chat state to localStorage
+  // Restore persisted state from localStorage
   useEffect(() => {
     try {
       const savedOpen = localStorage.getItem(STORAGE_KEY_CHAT_OPEN);
-      const savedWidth = localStorage.getItem(STORAGE_KEY_CHAT_WIDTH);
+      const savedChatWidth = localStorage.getItem(STORAGE_KEY_CHAT_WIDTH);
+      const savedRightWidth = localStorage.getItem(STORAGE_KEY_RIGHT_WIDTH);
       if (savedOpen !== null) setChatOpen(savedOpen === "true");
-      if (savedWidth !== null) setChatWidth(Number(savedWidth));
+      if (savedChatWidth !== null) setChatWidth(Number(savedChatWidth));
+      if (savedRightWidth !== null) setRightWidth(Number(savedRightWidth));
     } catch {}
   }, []);
 
@@ -107,6 +110,12 @@ export default function Index() {
       localStorage.setItem(STORAGE_KEY_CHAT_WIDTH, String(chatWidth));
     } catch {}
   }, [chatWidth]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_RIGHT_WIDTH, String(rightWidth));
+    } catch {}
+  }, [rightWidth]);
 
   const onRightDrag = useDragResize("right", MIN_RIGHT_WIDTH, MAX_RIGHT_WIDTH, rightWidth, setRightWidth);
   const onChatDrag = useDragResize("left", MIN_CHAT_WIDTH, MAX_CHAT_WIDTH, chatWidth, setChatWidth);
