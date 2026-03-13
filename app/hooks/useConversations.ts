@@ -214,12 +214,19 @@ export function useConversations() {
       : []),
   ];
 
+  const stopStreaming = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+  }, []);
+
   return {
     conversations,
     activeConversationId,
     displayMessages,
     isStreaming,
     sendMessage,
+    stopStreaming,
     selectConversation,
     createNewConversation,
     deleteConversation,

@@ -1,6 +1,9 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import {
   listConversations,
@@ -19,6 +22,24 @@ const PORT = process.env.CHAT_PORT ?? 4001;
 
 const OBSIDIAN_VAULT_PATH =
   "/Users/trevorr/Library/CloudStorage/GoogleDrive-richardson.trev@gmail.com/My Drive/Trevor/Second Brain/Second Brain";
+
+/** Load MCP server configs from ~/.claude.json */
+function loadMcpServers(): Record<string, any> {
+  try {
+    const configPath = path.join(os.homedir(), ".claude.json");
+    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    return config.mcpServers ?? {};
+  } catch {
+    return {};
+  }
+}
+
+const mcpServers = loadMcpServers();
+if (Object.keys(mcpServers).length > 0) {
+  console.log(
+    `Loaded MCP servers: ${Object.keys(mcpServers).join(", ")}`
+  );
+}
 
 app.use(cors());
 app.use(express.json());
@@ -123,7 +144,8 @@ app.post("/api/chat", async (req, res) => {
         permissionMode: "bypassPermissions",
         includePartialMessages: true,
         additionalDirectories: [OBSIDIAN_VAULT_PATH],
-        systemPrompt: `You are a personal work dashboard assistant. You have access to the user's Obsidian vault at "${OBSIDIAN_VAULT_PATH}". When the user asks questions about their notes, search and read files from this vault using Grep, Glob, and Read tools. The vault contains markdown files organized as a "Second Brain" knowledge base.`,
+        mcpServers,
+        systemPrompt: `You are a personal work dashboard assistant. You have access to the user's Obsidian vault at "${OBSIDIAN_VAULT_PATH}". When the user asks questions about their notes, search and read files from this vault using Grep, Glob, and Read tools. The vault contains markdown files organized as a "Second Brain" knowledge base. You also have access to MCP servers for Jira (Atlassian), Postgres, and other integrations.`,
         ...(sessionId ? { resume: sessionId } : {}),
       },
     })) {

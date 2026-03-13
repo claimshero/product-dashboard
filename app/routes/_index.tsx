@@ -18,12 +18,12 @@ export default function Index() {
     displayMessages,
     isStreaming,
     sendMessage,
+    stopStreaming,
     selectConversation,
     createNewConversation,
     deleteConversation,
   } = useConversations();
 
-  const [showSidebar, setShowSidebar] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const [chatOpen, setChatOpen] = useState(false);
   const dragging = useRef(false);
@@ -65,46 +65,23 @@ export default function Index() {
       </div>
 
       {/* Right sidebar: PRs + Daily Notes */}
-      {showSidebar && (
-        <>
-          {/* Drag handle */}
-          <div
-            onMouseDown={onDragStart}
-            className="flex w-1.5 flex-shrink-0 cursor-col-resize items-center justify-center hover:bg-[var(--mantine-color-blue-9)] transition-colors"
-            style={{ backgroundColor: "var(--mantine-color-dark-4)" }}
-          />
-          <div
-            className="flex flex-shrink-0 flex-col"
-            style={{ width: sidebarWidth }}
-          >
-            <div className="h-[40%] border-b border-[var(--mantine-color-dark-4)]">
-              <GitHubPRs />
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <DailyNotes />
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Sidebar toggle */}
-      <Tooltip label={showSidebar ? "Hide sidebar" : "Show sidebar"} position="left">
-        <ActionIcon
-          variant="filled"
-          color="dark.5"
-          size="lg"
-          onClick={() => setShowSidebar((v) => !v)}
-          style={{
-            position: "fixed",
-            top: 16,
-            right: showSidebar ? sidebarWidth + 8 : 16,
-            zIndex: 100,
-            border: "1px solid var(--mantine-color-dark-4)",
-          }}
-        >
-          <span style={{ fontSize: 16 }}>{showSidebar ? "\u00BB" : "\u00AB"}</span>
-        </ActionIcon>
-      </Tooltip>
+      {/* Drag handle */}
+      <div
+        onMouseDown={onDragStart}
+        className="flex w-1.5 flex-shrink-0 cursor-col-resize items-center justify-center hover:bg-[var(--mantine-color-blue-9)] transition-colors"
+        style={{ backgroundColor: "var(--mantine-color-dark-4)" }}
+      />
+      <div
+        className="flex flex-shrink-0 flex-col"
+        style={{ width: sidebarWidth }}
+      >
+        <div className="h-[40%] border-b border-[var(--mantine-color-dark-4)]">
+          <GitHubPRs />
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <DailyNotes />
+        </div>
+      </div>
 
       {/* Chat button */}
       <Tooltip label="Open chat" position="left">
@@ -117,7 +94,7 @@ export default function Index() {
           style={{
             position: "fixed",
             bottom: 24,
-            right: showSidebar ? sidebarWidth + 24 : 24,
+            right: sidebarWidth + 24,
             zIndex: 100,
             width: 48,
             height: 48,
@@ -186,6 +163,7 @@ export default function Index() {
                 messages={displayMessages}
                 isStreaming={isStreaming}
                 onSendMessage={sendMessage}
+                onStop={stopStreaming}
               />
             </div>
           </div>

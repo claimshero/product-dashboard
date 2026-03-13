@@ -24,31 +24,60 @@ function statusColor(statusCategory: string): string {
   }
 }
 
-function IssueRow({ issue }: { issue: JiraIssue }) {
+function IssueRow({ issue, depth = 0 }: { issue: JiraIssue; depth?: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasChildren = issue.children && issue.children.length > 0;
+
   return (
-    <a
-      href={issue.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center gap-3 border-b border-[var(--mantine-color-dark-5)] px-4 py-2 transition-colors hover:bg-[var(--mantine-color-dark-5)]"
-    >
-      <Text size="xs" c="dimmed" style={{ minWidth: 72, fontFamily: "monospace" }}>
-        {issue.key}
-      </Text>
-      <div className="min-w-0 flex-1">
-        <Text size="sm" c="gray.2" lineClamp={1}>
-          {issue.summary}
-        </Text>
+    <>
+      <div
+        className="flex items-center gap-3 border-b border-[var(--mantine-color-dark-5)] px-4 py-2 transition-colors hover:bg-[var(--mantine-color-dark-5)]"
+        style={{ paddingLeft: 16 + depth * 20 }}
+      >
+        {hasChildren ? (
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="xs"
+            onClick={() => setExpanded((v) => !v)}
+            style={{ flexShrink: 0 }}
+          >
+            <span style={{ fontSize: 10, display: "inline-block", transform: expanded ? "rotate(90deg)" : "none", transition: "transform 150ms" }}>
+              &#9654;
+            </span>
+          </ActionIcon>
+        ) : (
+          <div style={{ width: 22, flexShrink: 0 }} />
+        )}
+        <a
+          href={issue.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex min-w-0 flex-1 items-center gap-3"
+        >
+          <Text size="xs" c="dimmed" style={{ minWidth: 72, fontFamily: "monospace" }}>
+            {issue.key}
+          </Text>
+          <div className="min-w-0 flex-1">
+            <Text size="sm" c="gray.2" lineClamp={1}>
+              {issue.summary}
+            </Text>
+          </div>
+          {issue.assignee && (
+            <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
+              {issue.assignee.split(" ")[0]}
+            </Text>
+          )}
+          <Badge size="xs" variant="light" color={statusColor(issue.statusCategory)}>
+            {issue.status}
+          </Badge>
+        </a>
       </div>
-      {issue.assignee && (
-        <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
-          {issue.assignee.split(" ")[0]}
-        </Text>
-      )}
-      <Badge size="xs" variant="light" color={statusColor(issue.statusCategory)}>
-        {issue.status}
-      </Badge>
-    </a>
+      {hasChildren && expanded &&
+        issue.children!.map((child) => (
+          <IssueRow key={child.key} issue={child} depth={depth + 1} />
+        ))}
+    </>
   );
 }
 
@@ -80,16 +109,16 @@ function EpicCard({
               rel="noopener noreferrer"
               className="hover:underline"
             >
-              <Text size="sm" fw={600} c="gray.2">
-                {epic.key}
+              <Text size="sm" fw={600} c="gray.2" lineClamp={1}>
+                {epic.summary}
               </Text>
             </a>
-            <Badge size="xs" variant="light" color="blue">
+            <Badge size="xs" variant="light" color="blue" style={{ flexShrink: 0 }}>
               {epic.status}
             </Badge>
           </div>
-          <Text size="sm" c="dimmed" lineClamp={1}>
-            {epic.summary}
+          <Text size="xs" c="dimmed" style={{ fontFamily: "monospace" }}>
+            {epic.key}
           </Text>
         </div>
         <Tooltip label="Stop tracking">

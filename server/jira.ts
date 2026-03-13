@@ -49,6 +49,7 @@ export interface JiraIssue {
   issueType: string;
   url: string;
   updated: string;
+  children?: JiraIssue[];
 }
 
 export interface TrackedEpic {
@@ -100,13 +101,42 @@ async function fetchEpicWithChildren(epicKey: string): Promise<TrackedEpic> {
     throw new Error(`Issue ${epicKey} not found`);
   }
 
-  // Fetch child issues
+  // Fetch child issues (stories/tasks linked to the epic)
   const children: JiraIssue[] = (
     await searchIssues(
       `("Epic Link" = ${epicKey} OR parent = ${epicKey}) ORDER BY status ASC, updated DESC`,
       "summary,status,assignee,priority,issuetype,updated"
     )
   ).map(mapIssue);
+
+  // Fetch subtasks for all children in one batched query
+  if (children.length > 0) {
+    const childKeys = children.map((c) => c.key).join(", ");
+    const subtasks = (
+      await searchIssues(
+        `parent in (${childKeys}) ORDER BY status ASC, updated DESC`,
+        "summary,status,assignee,priority,issuetype,updated,parent"
+      )
+    ).map((raw) => ({ ...mapIssue(raw), parentKey: raw.fields.parent?.key as string | undefined }));
+
+    // Group subtasks by parent key
+    const subtasksByParent = new Map<string, JiraIssue[]>();
+    for (const st of subtasks) {
+      if (st.parentKey) {
+        const list = subtasksByParent.get(st.parentKey) ?? [];
+        list.push(st);
+        subtasksByParent.set(st.parentKey, list);
+      }
+    }
+
+    // Attach subtasks to their parent children
+    for (const child of children) {
+      const subs = subtasksByParent.get(child.key);
+      if (subs && subs.length > 0) {
+        child.children = subs;
+      }
+    }
+  }
 
   const done = children.filter((c) => c.statusCategory === "done").length;
 

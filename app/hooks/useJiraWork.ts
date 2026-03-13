@@ -12,6 +12,7 @@ export interface JiraIssue {
   issueType: string;
   url: string;
   updated: string;
+  children?: JiraIssue[];
 }
 
 export interface TrackedEpic {

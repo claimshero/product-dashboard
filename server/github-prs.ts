@@ -84,22 +84,24 @@ async function fetchPRs(): Promise<PullRequest[]> {
   const data = JSON.parse(stdout);
   const nodes = data.data?.search?.nodes ?? [];
 
-  return nodes.map((pr: any) => ({
-    number: pr.number,
-    title: pr.title,
-    url: pr.url,
-    repo: pr.repository.nameWithOwner,
-    author: pr.author?.login ?? "unknown",
-    createdAt: pr.createdAt,
-    updatedAt: pr.updatedAt,
-    reviewDecision: pr.reviewDecision,
-    additions: pr.additions,
-    deletions: pr.deletions,
-    labels: pr.labels?.nodes?.map((l: any) => l.name) ?? [],
-    checks: mapCheckState(
-      pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state
-    ),
-  }));
+  return nodes
+    .filter((pr: any) => pr.reviewDecision !== "APPROVED")
+    .map((pr: any) => ({
+      number: pr.number,
+      title: pr.title,
+      url: pr.url,
+      repo: pr.repository.nameWithOwner,
+      author: pr.author?.login ?? "unknown",
+      createdAt: pr.createdAt,
+      updatedAt: pr.updatedAt,
+      reviewDecision: pr.reviewDecision,
+      additions: pr.additions,
+      deletions: pr.deletions,
+      labels: pr.labels?.nodes?.map((l: any) => l.name) ?? [],
+      checks: mapCheckState(
+        pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state
+      ),
+    }));
 }
 
 export const githubPRsRouter = Router();
