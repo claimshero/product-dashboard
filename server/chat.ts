@@ -136,6 +136,7 @@ app.post("/api/chat", async (req, res) => {
   res.write(`event: meta\ndata: ${metaData}\n\n`);
 
   let accumulated = "";
+  let hasContentInCurrentTurn = false;
 
   try {
     for await (const message of query({
@@ -159,11 +160,22 @@ app.post("/api/chat", async (req, res) => {
 
       if (message.type === "stream_event") {
         const event = (message as any).event;
+
+        // Detect new message turn — insert paragraph break between turns
+        if (event.type === "message_start" && accumulated.length > 0) {
+          const separator = "\n\n";
+          accumulated += separator;
+          const data = JSON.stringify({ text: separator });
+          res.write(`event: delta\ndata: ${data}\n\n`);
+          hasContentInCurrentTurn = false;
+        }
+
         if (
           event.type === "content_block_delta" &&
           event.delta.type === "text_delta"
         ) {
           accumulated += event.delta.text;
+          hasContentInCurrentTurn = true;
           const data = JSON.stringify({ text: event.delta.text });
           res.write(`event: delta\ndata: ${data}\n\n`);
         }
