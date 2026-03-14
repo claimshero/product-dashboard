@@ -16,6 +16,9 @@ import {
 import { dailyNotesRouter } from "./daily-notes.js";
 import { githubPRsRouter } from "./github-prs.js";
 import { jiraRouter } from "./jira.js";
+import { scheduledTasksRouter } from "./scheduled-tasks-router.js";
+import { startScheduler } from "./scheduler.js";
+import { loadTaskDefinitions, createTaskDefinitionWithId } from "./scheduled-tasks.js";
 
 const app = express();
 const PORT = process.env.CHAT_PORT ?? 4001;
@@ -46,6 +49,7 @@ app.use(express.json());
 app.use(dailyNotesRouter);
 app.use(githubPRsRouter);
 app.use(jiraRouter);
+app.use(scheduledTasksRouter);
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -204,6 +208,51 @@ app.post("/api/chat", async (req, res) => {
     res.end();
   }
 });
+
+// --- Seed default tasks and start scheduler ---
+
+const DAILY_BRIEFING_ID = "daily-briefing";
+
+function seedDefaultTasks(): void {
+  const tasks = loadTaskDefinitions();
+  if (tasks.some((t) => t.id === DAILY_BRIEFING_ID)) return;
+
+  const now = new Date().toISOString();
+  createTaskDefinitionWithId({
+    id: DAILY_BRIEFING_ID,
+    name: "Daily Briefing",
+    description: "Morning summary of F1/IndyCar news and Slack research channel activity",
+    schedule: "0 7 * * 1-5",
+    enabled: true,
+    prompt: `Generate my daily briefing for {{date}}. Include two sections:
+
+## 🏎️ Racing News
+Search for the latest F1 and IndyCar news from the past 24 hours. Focus on:
+- Lando Norris and McLaren developments
+- Lewis Hamilton and Ferrari developments
+- Technical car development, regulation changes, and engineering innovations
+- Race results, qualifying, or practice sessions if any occurred
+- Team strategy and driver market news
+- Any notable IndyCar news
+
+## 💼 Work Updates
+Use the Slack MCP tools to read recent messages from the #research channel. Summarize:
+- Healthcare appeals discussions and insights
+- Competitor analysis and mentions
+- New laws or regulatory changes in the health/insurance ecosystem
+- Key decisions or action items from the team
+
+Format each section with clear bullet points. Be concise but informative. If you cannot access Slack, note that and focus on the racing news section.`,
+    systemPrompt: `You are a personal briefing assistant. Gather real-time information using web search and any available Slack/MCP tools, then produce a concise daily summary. Use markdown formatting. Today's date is {{date}}.`,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  console.log("Seeded daily briefing task");
+}
+
+seedDefaultTasks();
+startScheduler(mcpServers);
 
 app.listen(PORT, () => {
   console.log(`Chat server running at http://localhost:${PORT}`);

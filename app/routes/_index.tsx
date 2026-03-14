@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { ActionIcon, Tooltip } from "@mantine/core";
+import { ActionIcon, Tabs, Tooltip } from "@mantine/core";
 import { ChatInterface } from "~/components/ChatInterface";
+import { DailyBriefing } from "~/components/DailyBriefing";
 import { DailyNotes } from "~/components/DailyNotes";
 import { GitHubPRs } from "~/components/GitHubPRs";
 import { JiraWork } from "~/components/JiraWork";
@@ -17,6 +18,7 @@ const DEFAULT_CHAT_WIDTH = 420;
 const STORAGE_KEY_CHAT_OPEN = "dashboard:chatOpen";
 const STORAGE_KEY_CHAT_WIDTH = "dashboard:chatWidth";
 const STORAGE_KEY_RIGHT_WIDTH = "dashboard:rightWidth";
+const STORAGE_KEY_ACTIVE_TAB = "dashboard:activeTab";
 
 function useDragResize(
   direction: "left" | "right",
@@ -86,6 +88,7 @@ export default function Index() {
   const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH);
   const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
   const [chatOpen, setChatOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>("work");
 
   // Restore persisted state from localStorage
   useEffect(() => {
@@ -93,9 +96,11 @@ export default function Index() {
       const savedOpen = localStorage.getItem(STORAGE_KEY_CHAT_OPEN);
       const savedChatWidth = localStorage.getItem(STORAGE_KEY_CHAT_WIDTH);
       const savedRightWidth = localStorage.getItem(STORAGE_KEY_RIGHT_WIDTH);
+      const savedTab = localStorage.getItem(STORAGE_KEY_ACTIVE_TAB);
       if (savedOpen !== null) setChatOpen(savedOpen === "true");
       if (savedChatWidth !== null) setChatWidth(Number(savedChatWidth));
       if (savedRightWidth !== null) setRightWidth(Number(savedRightWidth));
+      if (savedTab !== null) setActiveTab(savedTab);
     } catch {}
   }, []);
 
@@ -116,6 +121,12 @@ export default function Index() {
       localStorage.setItem(STORAGE_KEY_RIGHT_WIDTH, String(rightWidth));
     } catch {}
   }, [rightWidth]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_ACTIVE_TAB, activeTab);
+    } catch {}
+  }, [activeTab]);
 
   const onRightDrag = useDragResize("right", MIN_RIGHT_WIDTH, MAX_RIGHT_WIDTH, rightWidth, setRightWidth);
   const onChatDrag = useDragResize("left", MIN_CHAT_WIDTH, MAX_CHAT_WIDTH, chatWidth, setChatWidth);
@@ -143,10 +154,32 @@ export default function Index() {
         </>
       )}
 
-      {/* Main content area */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <JiraWork />
-      </div>
+      {/* Main content area with tabs */}
+      <Tabs
+        value={activeTab}
+        onChange={(v) => setActiveTab(v ?? "work")}
+        variant="outline"
+        className="flex flex-1 flex-col overflow-hidden"
+        styles={{
+          root: { display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" },
+          panel: { flex: 1, overflow: "hidden" },
+          list: {
+            borderBottom: "1px solid var(--mantine-color-dark-4)",
+            backgroundColor: "var(--mantine-color-dark-8)",
+          },
+        }}
+      >
+        <Tabs.List px="sm" pt={4}>
+          <Tabs.Tab value="work">Current Work</Tabs.Tab>
+          <Tabs.Tab value="updates">Updates</Tabs.Tab>
+        </Tabs.List>
+        <Tabs.Panel value="work">
+          <JiraWork />
+        </Tabs.Panel>
+        <Tabs.Panel value="updates">
+          <DailyBriefing />
+        </Tabs.Panel>
+      </Tabs>
 
       {/* Right sidebar: PRs + Daily Notes */}
       <DragHandle onMouseDown={onRightDrag} />
