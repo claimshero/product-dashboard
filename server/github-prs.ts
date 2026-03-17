@@ -85,7 +85,7 @@ async function fetchPRs(): Promise<PullRequest[]> {
   const nodes = data.data?.search?.nodes ?? [];
 
   return nodes
-    .filter((pr: any) => pr.reviewDecision !== "APPROVED")
+    .filter((pr: any) => pr.reviewDecision !== "APPROVED" && pr.author?.login !== "trevtrich")
     .map((pr: any) => ({
       number: pr.number,
       title: pr.title,

@@ -4,6 +4,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import {
   loadTaskDefinitions,
   getTaskDefinition,
+  getLatestResult,
   saveTaskResult,
   updateTaskResult,
   type ScheduledTaskDefinition,
@@ -49,8 +50,19 @@ async function executeTask(task: ScheduledTaskDefinition): Promise<TaskExecution
         `You are a personal briefing assistant. Gather real-time information using web search and any available tools, then produce a concise summary. Use markdown formatting. Today's date is {{date}}.`
     );
 
+    // Include previous result so the agent can avoid repeating the same stories
+    let taskPrompt = interpolatePrompt(task.prompt);
+    const previousResult = getLatestResult(task.id);
+    if (previousResult?.content && previousResult.status === "success") {
+      taskPrompt +=
+        "\n\n---\n\n" +
+        "IMPORTANT: Below is your previous briefing. Do NOT repeat stories or items that were already covered. " +
+        "Only include genuinely new developments since last time. If a topic has no new updates, say so briefly rather than rehashing old news.\n\n" +
+        `Previous briefing (${previousResult.startedAt}):\n${previousResult.content}`;
+    }
+
     for await (const message of query({
-      prompt: interpolatePrompt(task.prompt),
+      prompt: taskPrompt,
       options: {
         permissionMode: "bypassPermissions",
         includePartialMessages: true,

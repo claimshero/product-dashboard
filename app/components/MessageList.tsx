@@ -11,15 +11,33 @@ interface MessageListProps {
 
 export function MessageList({ messages, isStreaming }: MessageListProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const isAtBottom = useRef(true);
 
   // Check if the last message is already a streaming assistant message
   const lastMsg = messages[messages.length - 1];
   const hasStreamingText = lastMsg?.role === "assistant" && isStreaming;
   const showThinking = isStreaming && !hasStreamingText;
 
-  // Auto-scroll to the bottom when new content arrives
+  // Track whether user is scrolled to the bottom via IntersectionObserver
   useEffect(() => {
-    if (viewportRef.current) {
+    const sentinel = sentinelRef.current;
+    const viewport = viewportRef.current;
+    if (!sentinel || !viewport) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        isAtBottom.current = entry.isIntersecting;
+      },
+      { root: viewport, threshold: 0 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
+
+  // Auto-scroll only when user is already at the bottom
+  useEffect(() => {
+    if (viewportRef.current && isAtBottom.current) {
       viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
     }
   }, [messages, showThinking]);
@@ -50,6 +68,7 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
             </Paper>
           </div>
         )}
+        <div ref={sentinelRef} style={{ height: 1 }} />
       </div>
     </ScrollArea>
   );

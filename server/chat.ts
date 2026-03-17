@@ -92,7 +92,48 @@ app.delete("/api/conversations/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-// --- Chat streaming endpoint ---
+// --- Auto-title generation ---
+
+async function generateConversationTitle(
+  convId: string,
+  userPrompt: string,
+  assistantResponse: string
+): Promise<void> {
+  const snippet = assistantResponse.slice(0, 500);
+  const titlePrompt =
+    "Summarize this conversation in 3-6 words for use as a short title. " +
+    "Return ONLY the title text, nothing else. No quotes, no punctuation at the end.\n\n" +
+    `User: ${userPrompt}\n\nAssistant: ${snippet}`;
+
+  let title = "";
+  try {
+    for await (const message of query({
+      prompt: titlePrompt,
+      options: {
+        permissionMode: "bypassPermissions",
+        systemPrompt:
+          "You generate short conversation titles. Respond with ONLY the title, 3-6 words. No quotes or trailing punctuation.",
+      },
+    })) {
+      if (message.type === "stream_event") {
+        const event = (message as any).event;
+        if (
+          event.type === "content_block_delta" &&
+          event.delta.type === "text_delta"
+        ) {
+          title += event.delta.text;
+        }
+      }
+    }
+
+    title = title.trim();
+    if (title) {
+      updateConversation(convId, { title });
+    }
+  } catch (err) {
+    console.error("Failed to generate conversation title:", err);
+  }
+}
 
 app.post("/api/chat", async (req, res) => {
   const { prompt, conversationId } = req.body as {
@@ -109,6 +150,7 @@ app.post("/api/chat", async (req, res) => {
   let convId = conversationId;
   let sessionId: string | undefined;
   let convTitle: string | undefined;
+  const isNewConversation = !conversationId;
 
   if (convId) {
     const existing = getConversation(convId);
@@ -197,6 +239,13 @@ app.post("/api/chat", async (req, res) => {
       appendMessages(convId, messagesToAppend);
     }
 
+    // Generate a descriptive title for new conversations
+    if (isNewConversation && convId && accumulated) {
+      generateConversationTitle(convId, prompt, accumulated).catch(
+        console.error
+      );
+    }
+
     res.write(`event: done\ndata: {}\n\n`);
     res.end();
   } catch (err) {
@@ -221,10 +270,10 @@ function seedDefaultTasks(): void {
   createTaskDefinitionWithId({
     id: DAILY_BRIEFING_ID,
     name: "Daily Briefing",
-    description: "Morning summary of F1/IndyCar news and Slack research channel activity",
+    description: "Morning summary of racing, healthcare appeals, market news, and Slack research channel",
     schedule: "0 7 * * 1-5",
     enabled: true,
-    prompt: `Generate my daily briefing for {{date}}. Include two sections:
+    prompt: `Generate my daily briefing for {{date}}. Include the following sections:
 
 ## 🏎️ Racing News
 Search for the latest F1 and IndyCar news from the past 24 hours. Focus on:
@@ -235,6 +284,21 @@ Search for the latest F1 and IndyCar news from the past 24 hours. Focus on:
 - Team strategy and driver market news
 - Any notable IndyCar news
 
+## 🏥 Healthcare Appeals & Regulation
+Search for the latest news in the healthcare space, specifically:
+- New laws, proposed legislation, or regulatory changes related to healthcare appeals (insurance claim denials, prior authorization, independent review)
+- Court rulings or legal developments affecting the appeals process
+- CMS, HHS, or state insurance commissioner actions impacting appeals
+- Payer policy changes around denials and appeals workflows
+- Any major healthcare industry news that could affect the appeals landscape
+
+## 📈 Industry Movement
+Search for major business and market activity in healthcare, RCM (revenue cycle management), and appeals:
+- M&A, funding rounds, or IPOs involving RCM companies, health tech, or payer/provider organizations
+- Earnings or financial news from major players (UnitedHealth, Elevance, R1 RCM, Waystar, etc.)
+- New product launches, partnerships, or market entries in the appeals/denials management space
+- Industry reports or analyst coverage on RCM trends, denial rates, or appeals volumes
+
 ## 💼 Work Updates
 Use the Slack MCP tools to read recent messages from the #research channel. Summarize:
 - Healthcare appeals discussions and insights
@@ -242,7 +306,7 @@ Use the Slack MCP tools to read recent messages from the #research channel. Summ
 - New laws or regulatory changes in the health/insurance ecosystem
 - Key decisions or action items from the team
 
-Format each section with clear bullet points. Be concise but informative. If you cannot access Slack, note that and focus on the racing news section.`,
+Format each section with clear bullet points. Be concise but informative. If you cannot access Slack, note that and focus on the other sections.`,
     systemPrompt: `You are a personal briefing assistant. Gather real-time information using web search and any available Slack/MCP tools, then produce a concise daily summary. Use markdown formatting. Today's date is {{date}}.`,
     createdAt: now,
     updatedAt: now,

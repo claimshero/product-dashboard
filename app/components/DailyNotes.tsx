@@ -125,16 +125,6 @@ export function DailyNotes() {
             >
               Create from template
             </Button>
-            {templateContent && (
-              <div className="mt-2 w-full">
-                <Text size="xs" c="dimmed" mb={4}>
-                  Template preview:
-                </Text>
-                <pre className="max-h-60 overflow-auto rounded border border-[var(--mantine-color-dark-4)] bg-[var(--mantine-color-dark-7)] p-3 text-xs text-[var(--mantine-color-gray-5)]">
-                  {templateContent}
-                </pre>
-              </div>
-            )}
           </div>
         ) : (
           <Textarea

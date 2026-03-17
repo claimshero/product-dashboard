@@ -176,6 +176,9 @@ export function useConversations() {
         // Refresh the conversation list (new conversation may have been created,
         // or updatedAt may have changed)
         await fetchConversations();
+
+        // Re-fetch after a delay to pick up auto-generated title
+        setTimeout(() => fetchConversations(), 3000);
       } catch (err) {
         if ((err as Error).name !== "AbortError") {
           const errorMsg =
