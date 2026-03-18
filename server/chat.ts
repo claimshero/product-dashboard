@@ -17,14 +17,19 @@ import { dailyNotesRouter } from "./daily-notes.js";
 import { githubPRsRouter } from "./github-prs.js";
 import { jiraRouter } from "./jira.js";
 import { scheduledTasksRouter } from "./scheduled-tasks-router.js";
+import { trackedInterestsRouter } from "./tracked-interests-router.js";
 import { startScheduler } from "./scheduler.js";
-import { loadTaskDefinitions, createTaskDefinitionWithId } from "./scheduled-tasks.js";
+import { loadTaskDefinitions, createTaskDefinitionWithId, updateTaskDefinition } from "./scheduled-tasks.js";
+import {
+  OBSIDIAN_VAULT_PATH,
+  APP_SUPPORT_DIR,
+  CHAT_SYSTEM_PROMPT,
+  DAILY_BRIEFING_PROMPT,
+  DAILY_BRIEFING_SYSTEM_PROMPT,
+} from "./prompts.js";
 
 const app = express();
 const PORT = process.env.CHAT_PORT ?? 4001;
-
-const OBSIDIAN_VAULT_PATH =
-  "/Users/trevorr/Library/CloudStorage/GoogleDrive-richardson.trev@gmail.com/My Drive/Trevor/Second Brain/Second Brain";
 
 /** Load MCP server configs from ~/.claude.json */
 function loadMcpServers(): Record<string, any> {
@@ -50,6 +55,7 @@ app.use(dailyNotesRouter);
 app.use(githubPRsRouter);
 app.use(jiraRouter);
 app.use(scheduledTasksRouter);
+app.use(trackedInterestsRouter);
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -190,9 +196,9 @@ app.post("/api/chat", async (req, res) => {
       options: {
         permissionMode: "bypassPermissions",
         includePartialMessages: true,
-        additionalDirectories: [OBSIDIAN_VAULT_PATH],
+        additionalDirectories: [OBSIDIAN_VAULT_PATH, APP_SUPPORT_DIR],
         mcpServers,
-        systemPrompt: `You are a personal work dashboard assistant. You have access to the user's Obsidian vault at "${OBSIDIAN_VAULT_PATH}". When the user asks questions about their notes, search and read files from this vault using Grep, Glob, and Read tools. The vault contains markdown files organized as a "Second Brain" knowledge base. You also have access to MCP servers for Jira (Atlassian), Postgres, and other integrations.`,
+        systemPrompt: CHAT_SYSTEM_PROMPT,
         ...(sessionId ? { resume: sessionId } : {}),
       },
     })) {
@@ -264,7 +270,19 @@ const DAILY_BRIEFING_ID = "daily-briefing";
 
 function seedDefaultTasks(): void {
   const tasks = loadTaskDefinitions();
-  if (tasks.some((t) => t.id === DAILY_BRIEFING_ID)) return;
+  const existing = tasks.find((t) => t.id === DAILY_BRIEFING_ID);
+
+  if (existing) {
+    // Always sync the prompt with the latest code version
+    if (existing.prompt !== DAILY_BRIEFING_PROMPT || existing.systemPrompt !== DAILY_BRIEFING_SYSTEM_PROMPT) {
+      updateTaskDefinition(DAILY_BRIEFING_ID, {
+        prompt: DAILY_BRIEFING_PROMPT,
+        systemPrompt: DAILY_BRIEFING_SYSTEM_PROMPT,
+      });
+      console.log("Updated daily briefing task prompt");
+    }
+    return;
+  }
 
   const now = new Date().toISOString();
   createTaskDefinitionWithId({
@@ -273,41 +291,8 @@ function seedDefaultTasks(): void {
     description: "Morning summary of racing, healthcare appeals, market news, and Slack research channel",
     schedule: "0 7 * * 1-5",
     enabled: true,
-    prompt: `Generate my daily briefing for {{date}}. Include the following sections:
-
-## 🏎️ Racing News
-Search for the latest F1 and IndyCar news from the past 24 hours. Focus on:
-- Lando Norris and McLaren developments
-- Lewis Hamilton and Ferrari developments
-- Technical car development, regulation changes, and engineering innovations
-- Race results, qualifying, or practice sessions if any occurred
-- Team strategy and driver market news
-- Any notable IndyCar news
-
-## 🏥 Healthcare Appeals & Regulation
-Search for the latest news in the healthcare space, specifically:
-- New laws, proposed legislation, or regulatory changes related to healthcare appeals (insurance claim denials, prior authorization, independent review)
-- Court rulings or legal developments affecting the appeals process
-- CMS, HHS, or state insurance commissioner actions impacting appeals
-- Payer policy changes around denials and appeals workflows
-- Any major healthcare industry news that could affect the appeals landscape
-
-## 📈 Industry Movement
-Search for major business and market activity in healthcare, RCM (revenue cycle management), and appeals:
-- M&A, funding rounds, or IPOs involving RCM companies, health tech, or payer/provider organizations
-- Earnings or financial news from major players (UnitedHealth, Elevance, R1 RCM, Waystar, etc.)
-- New product launches, partnerships, or market entries in the appeals/denials management space
-- Industry reports or analyst coverage on RCM trends, denial rates, or appeals volumes
-
-## 💼 Work Updates
-Use the Slack MCP tools to read recent messages from the #research channel. Summarize:
-- Healthcare appeals discussions and insights
-- Competitor analysis and mentions
-- New laws or regulatory changes in the health/insurance ecosystem
-- Key decisions or action items from the team
-
-Format each section with clear bullet points. Be concise but informative. If you cannot access Slack, note that and focus on the other sections.`,
-    systemPrompt: `You are a personal briefing assistant. Gather real-time information using web search and any available Slack/MCP tools, then produce a concise daily summary. Use markdown formatting. Today's date is {{date}}.`,
+    prompt: DAILY_BRIEFING_PROMPT,
+    systemPrompt: DAILY_BRIEFING_SYSTEM_PROMPT,
     createdAt: now,
     updatedAt: now,
   });

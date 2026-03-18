@@ -137,6 +137,15 @@ export function getLatestResult(taskId: string): TaskExecutionResult | undefined
   return getResultsForTask(taskId)[0];
 }
 
+export function getRecentSuccessfulResults(
+  taskId: string,
+  limit: number = 3
+): TaskExecutionResult[] {
+  return getResultsForTask(taskId)
+    .filter((r) => r.status === "success" && r.content)
+    .slice(0, limit);
+}
+
 export function saveTaskResult(result: TaskExecutionResult): void {
   const all = loadAllResults();
   all.push(result);

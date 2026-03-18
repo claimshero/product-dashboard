@@ -1,10 +1,11 @@
 import * as crypto from "node:crypto";
 import cron from "node-cron";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { buildTrackedInterestsPromptSection } from "./tracked-interests.js";
 import {
   loadTaskDefinitions,
   getTaskDefinition,
-  getLatestResult,
+  getRecentSuccessfulResults,
   saveTaskResult,
   updateTaskResult,
   type ScheduledTaskDefinition,
@@ -18,12 +19,27 @@ const cronJobs = new Map<string, CronTask>();
 // Track running executions so we can prevent overlaps
 const runningTasks = new Set<string>();
 
+function formatLocalDateTime(date: Date): string {
+  return date.toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+}
+
+function formatLocalDate(date: Date): string {
+  return date.toLocaleDateString("en-CA"); // YYYY-MM-DD format
+}
+
 function interpolatePrompt(text: string): string {
   const now = new Date();
   return text
-    .replace(/\{\{date\}\}/g, now.toISOString().split("T")[0])
+    .replace(/\{\{date\}\}/g, formatLocalDate(now))
     .replace(/\{\{time\}\}/g, now.toLocaleTimeString())
-    .replace(/\{\{datetime\}\}/g, now.toISOString());
+    .replace(/\{\{datetime\}\}/g, formatLocalDateTime(now));
 }
 
 async function executeTask(task: ScheduledTaskDefinition): Promise<TaskExecutionResult> {
@@ -50,15 +66,31 @@ async function executeTask(task: ScheduledTaskDefinition): Promise<TaskExecution
         `You are a personal briefing assistant. Gather real-time information using web search and any available tools, then produce a concise summary. Use markdown formatting. Today's date is {{date}}.`
     );
 
-    // Include previous result so the agent can avoid repeating the same stories
     let taskPrompt = interpolatePrompt(task.prompt);
-    const previousResult = getLatestResult(task.id);
-    if (previousResult?.content && previousResult.status === "success") {
+
+    // Append tracked interests if any
+    const trackedSection = buildTrackedInterestsPromptSection();
+    if (trackedSection) {
+      taskPrompt += "\n\n" + trackedSection;
+    }
+
+    // Include previous results so the agent can avoid repeating the same stories
+    const previousResults = getRecentSuccessfulResults(task.id, 3);
+    if (previousResults.length > 0) {
       taskPrompt +=
         "\n\n---\n\n" +
-        "IMPORTANT: Below is your previous briefing. Do NOT repeat stories or items that were already covered. " +
-        "Only include genuinely new developments since last time. If a topic has no new updates, say so briefly rather than rehashing old news.\n\n" +
-        `Previous briefing (${previousResult.startedAt}):\n${previousResult.content}`;
+        "CRITICAL DEDUPLICATION RULES:\n" +
+        "- Below are your previous briefings. Do NOT repeat ANY story, article, development, or data point already covered in ANY of them.\n" +
+        "- If a section has NO genuinely new information since the most recent briefing, OMIT that section entirely. Do not include it with stale content.\n" +
+        "- Only include a section if you find developments that occurred AFTER " +
+        formatLocalDateTime(new Date(previousResults[0].startedAt)) +
+        " (the last briefing).\n" +
+        "- It is completely acceptable to return a very short briefing or even just a note that there's nothing new today. Quality over quantity.\n" +
+        "- When searching, explicitly include time filters like 'past 24 hours' or 'today' to avoid finding old articles.\n\n";
+
+      for (const result of previousResults) {
+        taskPrompt += `--- Previous briefing (${formatLocalDateTime(new Date(result.startedAt))}) ---\n${result.content}\n\n`;
+      }
     }
 
     for await (const message of query({
