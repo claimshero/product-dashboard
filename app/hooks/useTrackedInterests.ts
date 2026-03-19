@@ -8,6 +8,7 @@ function getApiUrl(path: string): string {
 export interface TrackedInterest {
   id: string;
   topic: string;
+  category?: string;
   context?: string;
   sourceUrl?: string;
   addedAt: string;
@@ -31,16 +32,32 @@ export function useTrackedInterests() {
   }, []);
 
   const addInterest = useCallback(
-    async (topic: string, context?: string, sourceUrl?: string) => {
+    async (topic: string, context?: string, sourceUrl?: string, category?: string) => {
       try {
         await fetch(getApiUrl("/api/tracked-interests"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ topic, context, sourceUrl }),
+          body: JSON.stringify({ topic, category, context, sourceUrl }),
         });
         await fetchInterests();
       } catch (err) {
         console.error("Failed to add tracked interest:", err);
+      }
+    },
+    [fetchInterests]
+  );
+
+  const updateInterest = useCallback(
+    async (id: string, updates: Partial<Pick<TrackedInterest, "topic" | "category" | "context" | "sourceUrl">>) => {
+      try {
+        await fetch(getApiUrl(`/api/tracked-interests/${id}`), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updates),
+        });
+        await fetchInterests();
+      } catch (err) {
+        console.error("Failed to update tracked interest:", err);
       }
     },
     [fetchInterests]
@@ -64,5 +81,5 @@ export function useTrackedInterests() {
     fetchInterests();
   }, [fetchInterests]);
 
-  return { interests, loading, addInterest, removeInterest, refresh: fetchInterests };
+  return { interests, loading, addInterest, updateInterest, removeInterest, refresh: fetchInterests };
 }

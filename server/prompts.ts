@@ -40,41 +40,15 @@ You also have access to MCP servers for Jira (Atlassian), Slack, Postgres, and o
 
 export const DAILY_BRIEFING_SYSTEM_PROMPT = `You are a personal briefing assistant. Gather real-time information using web search and any available Slack/MCP tools, then produce a concise daily summary. Use markdown formatting. Today's date is {{date}}.`;
 
-export const DAILY_BRIEFING_PROMPT = `Generate my daily briefing for {{date}}. ONLY include sections that have genuinely new information since the last briefing. If a section has nothing new, OMIT it entirely — do not include it with old news. It is perfectly fine to return a short briefing or even just a note that there's nothing new today. I would rather see nothing than see yesterday's news again.
+export const DAILY_BRIEFING_PROMPT = `Generate my daily briefing for {{date}}.
 
-When searching, always add time qualifiers like "today", "past 24 hours", or "March 2026" to your searches to get fresh results. If search results look like the same articles from yesterday, do not include them.
+RULES:
+- ONLY include sections with genuinely NEW information since the last briefing. If a topic has nothing new, omit it entirely.
+- It is perfectly fine to return a short briefing or even just a note that there's nothing new. I would rather see nothing than yesterday's news.
+- When searching, always add time qualifiers like "today", "past 24 hours", or the current month/year to get fresh results.
+- If search results look like the same articles from a previous briefing, do NOT include them.
+- Group related topics under a single section heading with an appropriate emoji.
+- Format each section with clear bullet points. Be concise but informative.
+- If you cannot access a tool (e.g. Slack), note that briefly and move on.
 
-Possible sections (only include if there is NEW information):
-
-## 🏎️ Racing News
-Search for the latest F1 and IndyCar news from the past 24 hours. Focus on:
-- Lando Norris and McLaren developments
-- Lewis Hamilton and Ferrari developments
-- Technical car development, regulation changes, and engineering innovations
-- Race results, qualifying, or practice sessions if any occurred
-- Team strategy and driver market news
-- Any notable IndyCar news
-
-## 🏥 Healthcare Appeals & Regulation
-Search for the latest news in the healthcare space, specifically:
-- New laws, proposed legislation, or regulatory changes related to healthcare appeals (insurance claim denials, prior authorization, independent review)
-- Court rulings or legal developments affecting the appeals process
-- CMS, HHS, or state insurance commissioner actions impacting appeals
-- Payer policy changes around denials and appeals workflows
-- Any major healthcare industry news that could affect the appeals landscape
-
-## 📈 Industry Movement
-Search for major business and market activity in healthcare, RCM (revenue cycle management), and appeals:
-- M&A, funding rounds, or IPOs involving RCM companies, health tech, or payer/provider organizations
-- Earnings or financial news from major players (UnitedHealth, Elevance, R1 RCM, Waystar, etc.)
-- New product launches, partnerships, or market entries in the appeals/denials management space
-- Industry reports or analyst coverage on RCM trends, denial rates, or appeals volumes
-
-## 💼 Work Updates
-Use the Slack MCP tools to read recent messages from the #research channel. Summarize:
-- Healthcare appeals discussions and insights
-- Competitor analysis and mentions
-- New laws or regulatory changes in the health/insurance ecosystem
-- Key decisions or action items from the team
-
-Format each section with clear bullet points. Be concise but informative. If you cannot access Slack, note that and focus on the other sections.`;
+The specific topics to cover will be appended below as "Tracked Topics". Search for recent developments on each.`;

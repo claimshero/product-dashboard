@@ -204,26 +204,9 @@ function TrackableListItem({
 
 export function DailyBriefing() {
   const { briefing, loading, error, refresh, runNow } = useDailyBriefing();
-  const { interests, addInterest, removeInterest } = useTrackedInterests();
-
-  const [addingInterest, setAddingInterest] = useState(false);
-  const [newTopic, setNewTopic] = useState("");
-  const [newContext, setNewContext] = useState("");
-  const [newSourceUrl, setNewSourceUrl] = useState("");
+  const { addInterest } = useTrackedInterests();
 
   const isRunning = briefing?.status === "running";
-
-  const handleAddInterest = async () => {
-    const topic = newTopic.trim();
-    if (!topic) return;
-    const context = newContext.trim() || undefined;
-    const sourceUrl = newSourceUrl.trim() || undefined;
-    await addInterest(topic, context, sourceUrl);
-    setNewTopic("");
-    setNewContext("");
-    setNewSourceUrl("");
-    setAddingInterest(false);
-  };
 
   const handleInlineTrack = useCallback(
     async (topic: string, context: string, sourceUrl: string) => {
@@ -255,16 +238,6 @@ export function DailyBriefing() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Tooltip label="Track a topic">
-            <ActionIcon
-              variant={addingInterest ? "filled" : "subtle"}
-              color="blue"
-              size="sm"
-              onClick={() => setAddingInterest((v) => !v)}
-            >
-              <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
-            </ActionIcon>
-          </Tooltip>
           <Button
             size="xs"
             variant="light"
@@ -288,100 +261,6 @@ export function DailyBriefing() {
           </Tooltip>
         </div>
       </div>
-
-      {/* Add interest form */}
-      {addingInterest && (
-        <div className="flex flex-col gap-2 border-b border-[var(--mantine-color-dark-4)] px-4 py-2">
-          <div className="flex items-center gap-2">
-            <TextInput
-              placeholder="Track a topic..."
-              value={newTopic}
-              onChange={(e) => setNewTopic(e.currentTarget.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAddInterest()}
-              size="xs"
-              className="flex-1"
-              styles={{
-                input: {
-                  backgroundColor: "var(--mantine-color-dark-6)",
-                  border: "1px solid var(--mantine-color-dark-4)",
-                },
-              }}
-            />
-            <Button size="xs" variant="light" color="blue" onClick={handleAddInterest}>
-              Track
-            </Button>
-          </div>
-          <TextInput
-            placeholder="Context (optional) — e.g. Announced at HIMSS 2026"
-            value={newContext}
-            onChange={(e) => setNewContext(e.currentTarget.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAddInterest()}
-            size="xs"
-            styles={{
-              input: {
-                backgroundColor: "var(--mantine-color-dark-6)",
-                border: "1px solid var(--mantine-color-dark-4)",
-              },
-            }}
-          />
-          <TextInput
-            placeholder="Source URL (optional)"
-            value={newSourceUrl}
-            onChange={(e) => setNewSourceUrl(e.currentTarget.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAddInterest()}
-            size="xs"
-            styles={{
-              input: {
-                backgroundColor: "var(--mantine-color-dark-6)",
-                border: "1px solid var(--mantine-color-dark-4)",
-              },
-            }}
-          />
-        </div>
-      )}
-
-      {/* Tracked interests list */}
-      {interests.length > 0 && (
-        <div className="border-b border-[var(--mantine-color-dark-4)] px-4 py-2">
-          <Text size="xs" c="dimmed" fw={500} className="mb-1">
-            Tracking {interests.length} topic{interests.length !== 1 ? "s" : ""}
-          </Text>
-          <div className="flex flex-col gap-1">
-            {interests.map((interest) => (
-              <div key={interest.id} className="flex items-center gap-2 group">
-                <Text size="xs" c="gray.3" className="flex-1" lineClamp={1}>
-                  {interest.sourceUrl ? (
-                    <a
-                      href={interest.sourceUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[var(--mantine-color-blue-4)] hover:underline"
-                    >
-                      {interest.topic}
-                    </a>
-                  ) : (
-                    interest.topic
-                  )}
-                  {interest.context && (
-                    <span className="text-[var(--mantine-color-dark-2)]"> — {interest.context}</span>
-                  )}
-                </Text>
-                <Tooltip label="Stop tracking">
-                  <ActionIcon
-                    variant="subtle"
-                    color="red"
-                    size="xs"
-                    className="opacity-0 group-hover:opacity-100"
-                    onClick={() => removeInterest(interest.id)}
-                  >
-                    <span style={{ fontSize: 12 }}>&#x2715;</span>
-                  </ActionIcon>
-                </Tooltip>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Content */}
       <ScrollArea className="flex-1">

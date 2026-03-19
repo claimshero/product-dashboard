@@ -12,6 +12,7 @@ const INTERESTS_PATH = path.join(STORE_DIR, "tracked-interests.json");
 export interface TrackedInterest {
   id: string;
   topic: string;
+  category?: string;
   context?: string;
   sourceUrl?: string;
   addedAt: string;
@@ -43,17 +44,34 @@ function saveTrackedInterests(interests: TrackedInterest[]): void {
 export function addTrackedInterest(
   topic: string,
   context?: string,
-  sourceUrl?: string
+  sourceUrl?: string,
+  category?: string
 ): TrackedInterest {
   const interests = loadTrackedInterests();
   const interest: TrackedInterest = {
     id: crypto.randomUUID(),
     topic,
+    ...(category ? { category } : {}),
     ...(context ? { context } : {}),
     ...(sourceUrl ? { sourceUrl } : {}),
     addedAt: new Date().toISOString(),
   };
   interests.push(interest);
+  saveTrackedInterests(interests);
+  return interest;
+}
+
+export function updateTrackedInterest(
+  id: string,
+  updates: Partial<Pick<TrackedInterest, "topic" | "category" | "context" | "sourceUrl">>
+): TrackedInterest | undefined {
+  const interests = loadTrackedInterests();
+  const interest = interests.find((i) => i.id === id);
+  if (!interest) return undefined;
+  if (updates.topic !== undefined) interest.topic = updates.topic;
+  if (updates.category !== undefined) interest.category = updates.category || undefined;
+  if (updates.context !== undefined) interest.context = updates.context || undefined;
+  if (updates.sourceUrl !== undefined) interest.sourceUrl = updates.sourceUrl || undefined;
   saveTrackedInterests(interests);
   return interest;
 }
@@ -79,9 +97,9 @@ export function buildTrackedInterestsPromptSection(): string {
   });
 
   return (
-    `## 🔍 Tracked Topics\n` +
-    `The user has asked you to watch for updates on these specific topics. Search for recent developments on each:\n` +
-    lines.join("\n") +
-    `\nIf there are no new developments on a tracked topic, skip it.`
+    `## Topics to cover\n` +
+    `Search for recent developments on each of these topics. Group related topics under a single section heading with an appropriate emoji. ` +
+    `If there are no new developments on a topic since the last briefing, skip it entirely.\n\n` +
+    lines.join("\n")
   );
 }
