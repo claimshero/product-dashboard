@@ -13,11 +13,14 @@ import {
   updateConversation,
   appendMessages,
 } from "./conversations.js";
+import { betsRouter } from "./bets.js";
 import { dailyNotesRouter } from "./daily-notes.js";
+import { tasksRouter } from "./tasks-router.js";
 import { githubPRsRouter } from "./github-prs.js";
 import { jiraRouter } from "./jira.js";
 import { scheduledTasksRouter } from "./scheduled-tasks-router.js";
 import { trackedInterestsRouter } from "./tracked-interests-router.js";
+import { clientsPartnersRouter } from "./clients-partners.js";
 import { startScheduler } from "./scheduler.js";
 import { loadTaskDefinitions, createTaskDefinitionWithId, updateTaskDefinition } from "./scheduled-tasks.js";
 import {
@@ -27,6 +30,89 @@ import {
   DAILY_BRIEFING_PROMPT,
   DAILY_BRIEFING_SYSTEM_PROMPT,
 } from "./prompts.js";
+
+interface ChatContext {
+  selectedNode?: {
+    type: string;
+    name?: string;
+    slug?: string;
+    filePath?: string;
+    fileName?: string;
+    filename?: string;
+    date?: string;
+    key?: string;
+    summary?: string;
+    status?: string;
+    issueType?: string;
+    url?: string;
+  } | null;
+  selectedTask?: {
+    id: string;
+    text: string;
+    completed: boolean;
+    betSlug: string | null;
+    jiraKey: string | null;
+    clientSlug: string | null;
+    partnerSlug: string | null;
+    urgency: string | null;
+    date: string;
+  } | null;
+}
+
+function buildSystemPrompt(context?: ChatContext): string {
+  let prompt = CHAT_SYSTEM_PROMPT;
+  const node = context?.selectedNode;
+  if (!node) return prompt;
+
+  prompt += `\n\n## Currently selected item\nThe user is currently viewing this item in the dashboard:\n`;
+
+  switch (node.type) {
+    case "bet":
+      prompt += `- **Type:** Bet\n- **Name:** ${node.name}\n- **Status:** ${node.status}\n- **Vault folder:** Product/Bets/${node.slug}/\n\nThis is a product bet from Josh's Obsidian vault. The bet.md file and any notes/research files are in the vault at the path above. When the user refers to "this bet" or asks about it, read the bet.md and related files to answer.`;
+      break;
+    case "bet-file":
+      prompt += `- **Type:** Bet file\n- **Bet folder:** Product/Bets/${node.slug}/\n- **File:** ${node.filePath}\n\nThe user is viewing a specific file within a bet folder. Read this file from the vault to answer questions about it.`;
+      break;
+    case "jira-idea":
+    case "jira-epic":
+    case "jira-story": {
+      const typeLabel = node.type === "jira-idea" ? "Idea" : node.type === "jira-epic" ? "Epic" : node.issueType ?? "Story";
+      prompt += `- **Type:** ${typeLabel}\n- **Key:** ${node.key}\n- **Summary:** ${node.summary}\n- **Status:** ${node.status}\n- **URL:** ${node.url}\n\nWhen the user refers to "this", "the selected item", or asks about something without specifying which item, they likely mean this item. You can use the Jira MCP tools to look up more details about it.`;
+      break;
+    }
+    case "meeting-note":
+      prompt += `- **Type:** Meeting note\n- **Name:** ${node.name}\n- **Date:** ${node.date ?? ""}\n- **File:** Daily/meetings/${node.filename ?? ""}\n\nThe user is viewing a meeting note. Read the file from the vault to answer questions about it.`;
+      break;
+    case "client":
+      prompt += `- **Type:** Client\n- **Name:** ${node.name}\n- **Relationship:** ${node.status ?? ""}\n- **Vault folder:** Product/Clients/${node.slug}/\n\nThis is a client from Josh's Obsidian vault. Read the client.md and related notes to answer questions about this client.`;
+      break;
+    case "partner":
+      prompt += `- **Type:** Partner\n- **Name:** ${node.name}\n- **Relationship:** ${node.status ?? ""}\n- **Vault folder:** Product/Partners/${node.slug}/\n\nThis is a partner from Josh's Obsidian vault. Read the partner.md and related notes to answer questions about this partner.`;
+      break;
+    case "client-file":
+      prompt += `- **Type:** Client file\n- **Client folder:** Product/Clients/${node.slug}/\n- **File:** ${node.filePath}\n\nThe user is viewing a specific file within a client folder. Read this file from the vault to answer questions about it.`;
+      break;
+    case "partner-file":
+      prompt += `- **Type:** Partner file\n- **Partner folder:** Product/Partners/${node.slug}/\n- **File:** ${node.filePath}\n\nThe user is viewing a specific file within a partner folder. Read this file from the vault to answer questions about it.`;
+      break;
+  }
+
+  const task = context?.selectedTask;
+  if (task) {
+    prompt += `\n\n## Currently selected task\nThe user has selected this task in the dashboard. When they refer to "this task" or "the task", they mean:\n`;
+    prompt += `- **Text:** ${task.text}\n`;
+    prompt += `- **Status:** ${task.completed ? "Completed" : "To Do"}\n`;
+    prompt += `- **Date:** ${task.date}\n`;
+    if (task.urgency) prompt += `- **Urgency:** ${task.urgency}\n`;
+    if (task.betSlug) prompt += `- **Bet:** ${task.betSlug}\n`;
+    if (task.jiraKey) prompt += `- **JIRA:** ${task.jiraKey}\n`;
+    if (task.clientSlug) prompt += `- **Client:** ${task.clientSlug}\n`;
+    if (task.partnerSlug) prompt += `- **Partner:** ${task.partnerSlug}\n`;
+    prompt += `\nThe task lives in the daily note at Daily/${task.date}.md under the ## Tasks section.`;
+  }
+
+  return prompt;
+}
 
 const app = express();
 const PORT = process.env.CHAT_PORT ?? 4001;
@@ -51,11 +137,14 @@ if (Object.keys(mcpServers).length > 0) {
 
 app.use(cors());
 app.use(express.json());
+app.use(betsRouter);
 app.use(dailyNotesRouter);
+app.use(tasksRouter);
 app.use(githubPRsRouter);
 app.use(jiraRouter);
 app.use(scheduledTasksRouter);
 app.use(trackedInterestsRouter);
+app.use(clientsPartnersRouter);
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -142,9 +231,10 @@ async function generateConversationTitle(
 }
 
 app.post("/api/chat", async (req, res) => {
-  const { prompt, conversationId } = req.body as {
+  const { prompt, conversationId, context } = req.body as {
     prompt?: string;
     conversationId?: string;
+    context?: ChatContext;
   };
 
   if (!prompt || typeof prompt !== "string") {
@@ -196,9 +286,9 @@ app.post("/api/chat", async (req, res) => {
       options: {
         permissionMode: "bypassPermissions",
         includePartialMessages: true,
-        additionalDirectories: [OBSIDIAN_VAULT_PATH, APP_SUPPORT_DIR],
+        additionalDirectories: [OBSIDIAN_VAULT_PATH, APP_SUPPORT_DIR, path.join(os.homedir(), ".claude/agents")],
         mcpServers,
-        systemPrompt: CHAT_SYSTEM_PROMPT,
+        systemPrompt: buildSystemPrompt(context),
         ...(sessionId ? { resume: sessionId } : {}),
       },
     })) {
