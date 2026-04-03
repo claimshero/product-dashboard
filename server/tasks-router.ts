@@ -1,10 +1,26 @@
 import { Router } from "express";
 import fs from "fs";
 import path from "path";
-import { parseTasks, toggleTask, deleteTask, appendTasks, updateTaskDescription, type Task } from "./tasks.js";
+import {
+  getAllTasks,
+  getCategoryTasks,
+  listTaskFiles,
+  resolveCategory,
+  ensureTaskFile,
+  readCategoryFile,
+  writeCategoryFile,
+  parseTaskFile,
+  toggleTaskInFile,
+  deleteTaskFromFile,
+  updateTaskDescriptionInFile,
+  appendTaskToFile,
+  cleanTaskText,
+} from "./task-files.js";
+import { appendCreatedEntry, appendCompletedEntry, parseActivityLog } from "./daily-activity-log.js";
 
 const VAULT_PATH = "/Users/joshroberts/Workspace/Josh Vault";
 const DAILY_NOTES_DIR = path.join(VAULT_PATH, "Daily");
+const MEETINGS_DIR = path.join(VAULT_PATH, "Daily/meetings");
 
 function formatDate(date: string): string {
   return date.replace(/[^0-9-]/g, "").slice(0, 10);
@@ -14,71 +30,52 @@ function notePathForDate(date: string): string {
   return path.join(DAILY_NOTES_DIR, `${formatDate(date)}.md`);
 }
 
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Append an activity log entry to a daily note, creating the note if needed.
+ */
+function logToDaily(date: string, type: "created" | "completed", category: string, taskText: string): void {
+  const filePath = notePathForDate(date);
+  if (!fs.existsSync(filePath)) return; // Only log if daily note exists
+
+  const content = fs.readFileSync(filePath, "utf-8");
+  const cleaned = cleanTaskText(taskText);
+  const updated = type === "created"
+    ? appendCreatedEntry(content, category, cleaned)
+    : appendCompletedEntry(content, category, cleaned);
+  fs.writeFileSync(filePath, updated, "utf-8");
+}
+
 export const tasksRouter = Router();
 
 /**
- * GET /api/tasks/open
- * Scan recent daily notes (last 30 days) for all incomplete tasks.
+ * GET /api/tasks
+ * All tasks across all category files.
+ * Query params: status=open|completed|all, category=slug, urgency=high|medium|low
  */
-tasksRouter.get("/api/tasks/open", (_req, res) => {
+tasksRouter.get("/api/tasks", (req, res) => {
   try {
-    let files: string[] = [];
-    try {
-      files = fs.readdirSync(DAILY_NOTES_DIR);
-    } catch {
-      res.json({ tasks: [] });
-      return;
+    let tasks = getAllTasks();
+
+    const { status, category, urgency } = req.query;
+
+    if (status === "open") {
+      tasks = tasks.filter((t) => !t.completed);
+    } else if (status === "completed") {
+      tasks = tasks.filter((t) => t.completed);
     }
 
-    const dateFiles = files
-      .filter((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
-      .map((f) => f.replace(".md", ""))
-      .sort()
-      .reverse();
-
-    // Scan last 30 days worth of notes
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 30);
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
-
-    const openTasks: Task[] = [];
-
-    for (const date of dateFiles) {
-      if (date < cutoffStr) break;
-
-      const filePath = notePathForDate(date);
-      try {
-        const content = fs.readFileSync(filePath, "utf-8");
-        const tasks = parseTasks(content, date);
-        openTasks.push(...tasks.filter((t) => !t.completed));
-      } catch {
-        // Skip unreadable files
-      }
+    if (category && typeof category === "string") {
+      tasks = tasks.filter((t) => t.category === category);
     }
 
-    res.json({ tasks: openTasks });
-  } catch (err) {
-    console.error("Error fetching open tasks:", err);
-    res.status(500).json({ error: "Failed to fetch open tasks" });
-  }
-});
-
-/**
- * GET /api/tasks/:date
- * Parse all tasks (complete + incomplete) from a single daily note.
- */
-tasksRouter.get("/api/tasks/:date", (req, res) => {
-  try {
-    const date = formatDate(req.params.date);
-    const filePath = notePathForDate(date);
-
-    if (!fs.existsSync(filePath)) {
-      res.json({ tasks: [] });
-      return;
+    if (urgency && typeof urgency === "string") {
+      tasks = tasks.filter((t) => t.urgency === urgency);
     }
 
-    const content = fs.readFileSync(filePath, "utf-8");
-    const tasks = parseTasks(content, date);
     res.json({ tasks });
   } catch (err) {
     console.error("Error fetching tasks:", err);
@@ -87,12 +84,88 @@ tasksRouter.get("/api/tasks/:date", (req, res) => {
 });
 
 /**
- * PUT /api/tasks/:date/:lineIndex/toggle
- * Toggle a task's completion status and write the updated file.
+ * GET /api/tasks/categories
+ * List all category file names.
  */
-tasksRouter.put("/api/tasks/:date/:lineIndex/toggle", (req, res) => {
+tasksRouter.get("/api/tasks/categories", (_req, res) => {
   try {
-    const date = formatDate(req.params.date);
+    const categories = listTaskFiles();
+    res.json({ categories });
+  } catch (err) {
+    console.error("Error listing categories:", err);
+    res.status(500).json({ error: "Failed to list categories" });
+  }
+});
+
+/**
+ * GET /api/tasks/category/:category
+ * All tasks in a specific category file.
+ */
+tasksRouter.get("/api/tasks/category/:category", (req, res) => {
+  try {
+    const tasks = getCategoryTasks(req.params.category);
+    res.json({ tasks });
+  } catch (err) {
+    console.error("Error fetching category tasks:", err);
+    res.status(500).json({ error: "Failed to fetch category tasks" });
+  }
+});
+
+/**
+ * POST /api/tasks
+ * Create a new task. Server resolves category from metadata.
+ * Body: { text, betSlug?, jiraKey?, clientSlug?, partnerSlug?, urgency? }
+ */
+tasksRouter.post("/api/tasks", (req, res) => {
+  try {
+    const { text, betSlug, jiraKey, clientSlug, partnerSlug, urgency } = req.body as {
+      text: string;
+      betSlug?: string;
+      jiraKey?: string;
+      clientSlug?: string;
+      partnerSlug?: string;
+      urgency?: string;
+    };
+
+    if (!text?.trim()) {
+      res.status(400).json({ error: "Task text is required" });
+      return;
+    }
+
+    const category = resolveCategory({ betSlug, jiraKey, clientSlug, partnerSlug });
+    const today = todayStr();
+
+    // Build task line with metadata tags
+    let taskLine = text.trim();
+    if (betSlug) taskLine += ` [[${betSlug}]]`;
+    if (jiraKey) taskLine += ` #${jiraKey}`;
+    if (clientSlug) taskLine += ` {{client:${clientSlug}}}`;
+    if (partnerSlug) taskLine += ` {{partner:${partnerSlug}}}`;
+    if (urgency) taskLine += ` {{urgency:${urgency}}}`;
+
+    ensureTaskFile(category);
+    const content = readCategoryFile(category)!;
+    const updated = appendTaskToFile(content, taskLine, today);
+    writeCategoryFile(category, updated);
+
+    // Log to today's daily note
+    logToDaily(today, "created", category, taskLine);
+
+    const tasks = parseTaskFile(updated, category);
+    res.json({ tasks, category });
+  } catch (err) {
+    console.error("Error creating task:", err);
+    res.status(500).json({ error: "Failed to create task" });
+  }
+});
+
+/**
+ * PUT /api/tasks/:category/:lineIndex/toggle
+ * Toggle a task's completion status.
+ */
+tasksRouter.put("/api/tasks/:category/:lineIndex/toggle", (req, res) => {
+  try {
+    const { category } = req.params;
     const lineIndex = parseInt(req.params.lineIndex, 10);
 
     if (isNaN(lineIndex) || lineIndex < 0) {
@@ -100,18 +173,29 @@ tasksRouter.put("/api/tasks/:date/:lineIndex/toggle", (req, res) => {
       return;
     }
 
-    const filePath = notePathForDate(date);
-    if (!fs.existsSync(filePath)) {
-      res.status(404).json({ error: "Daily note not found" });
+    const content = readCategoryFile(category);
+    if (content === null) {
+      res.status(404).json({ error: "Category file not found" });
       return;
     }
 
-    const content = fs.readFileSync(filePath, "utf-8");
-    const updated = toggleTask(content, lineIndex);
-    fs.writeFileSync(filePath, updated, "utf-8");
+    // Get the task before toggling to know its text
+    const tasksBefore = parseTaskFile(content, category);
+    const taskBefore = tasksBefore.find((t) => t.lineIndex === lineIndex);
 
-    // Return the updated task
-    const tasks = parseTasks(updated, date);
+    const today = todayStr();
+    const updated = toggleTaskInFile(content, lineIndex, today);
+    writeCategoryFile(category, updated);
+
+    // Log completion/uncompletion to daily note
+    if (taskBefore) {
+      const wasCompleted = taskBefore.completed;
+      if (!wasCompleted) {
+        logToDaily(today, "completed", category, taskBefore.text);
+      }
+    }
+
+    const tasks = parseTaskFile(updated, category);
     const task = tasks.find((t) => t.lineIndex === lineIndex);
     res.json({ task: task ?? null });
   } catch (err) {
@@ -121,12 +205,12 @@ tasksRouter.put("/api/tasks/:date/:lineIndex/toggle", (req, res) => {
 });
 
 /**
- * PUT /api/tasks/:date/:lineIndex/description
+ * PUT /api/tasks/:category/:lineIndex/description
  * Update a task's description.
  */
-tasksRouter.put("/api/tasks/:date/:lineIndex/description", (req, res) => {
+tasksRouter.put("/api/tasks/:category/:lineIndex/description", (req, res) => {
   try {
-    const date = formatDate(req.params.date);
+    const { category } = req.params;
     const lineIndex = parseInt(req.params.lineIndex, 10);
     const { description } = req.body as { description: string };
 
@@ -135,17 +219,16 @@ tasksRouter.put("/api/tasks/:date/:lineIndex/description", (req, res) => {
       return;
     }
 
-    const filePath = notePathForDate(date);
-    if (!fs.existsSync(filePath)) {
-      res.status(404).json({ error: "Daily note not found" });
+    const content = readCategoryFile(category);
+    if (content === null) {
+      res.status(404).json({ error: "Category file not found" });
       return;
     }
 
-    const content = fs.readFileSync(filePath, "utf-8");
-    const updated = updateTaskDescription(content, lineIndex, description ?? "");
-    fs.writeFileSync(filePath, updated, "utf-8");
+    const updated = updateTaskDescriptionInFile(content, lineIndex, description ?? "");
+    writeCategoryFile(category, updated);
 
-    const tasks = parseTasks(updated, date);
+    const tasks = parseTaskFile(updated, category);
     const task = tasks.find((t) => t.lineIndex === lineIndex);
     res.json({ task: task ?? null });
   } catch (err) {
@@ -155,12 +238,12 @@ tasksRouter.put("/api/tasks/:date/:lineIndex/description", (req, res) => {
 });
 
 /**
- * DELETE /api/tasks/:date/:lineIndex
- * Delete a task from the daily note.
+ * DELETE /api/tasks/:category/:lineIndex
+ * Delete a task from a category file.
  */
-tasksRouter.delete("/api/tasks/:date/:lineIndex", (req, res) => {
+tasksRouter.delete("/api/tasks/:category/:lineIndex", (req, res) => {
   try {
-    const date = formatDate(req.params.date);
+    const { category } = req.params;
     const lineIndex = parseInt(req.params.lineIndex, 10);
 
     if (isNaN(lineIndex) || lineIndex < 0) {
@@ -168,23 +251,24 @@ tasksRouter.delete("/api/tasks/:date/:lineIndex", (req, res) => {
       return;
     }
 
-    const filePath = notePathForDate(date);
-    if (!fs.existsSync(filePath)) {
-      res.status(404).json({ error: "Daily note not found" });
+    const content = readCategoryFile(category);
+    if (content === null) {
+      res.status(404).json({ error: "Category file not found" });
       return;
     }
 
-    const content = fs.readFileSync(filePath, "utf-8");
-    const updated = deleteTask(content, lineIndex);
-    fs.writeFileSync(filePath, updated, "utf-8");
+    const updated = deleteTaskFromFile(content, lineIndex);
+    writeCategoryFile(category, updated);
 
-    const tasks = parseTasks(updated, date);
+    const tasks = parseTaskFile(updated, category);
     res.json({ tasks });
   } catch (err) {
     console.error("Error deleting task:", err);
     res.status(500).json({ error: "Failed to delete task" });
   }
 });
+
+// --- Daily sections (updated to return activity log instead of tasks) ---
 
 /**
  * Parse a daily note into structured sections.
@@ -242,7 +326,7 @@ function updateSection(markdown: string, section: string, newContent: string): s
 
 /**
  * GET /api/daily-sections/:date
- * Parse daily note into structured sections.
+ * Parse daily note into structured sections with activity log.
  */
 tasksRouter.get("/api/daily-sections/:date", (req, res) => {
   try {
@@ -250,14 +334,14 @@ tasksRouter.get("/api/daily-sections/:date", (req, res) => {
     const filePath = notePathForDate(date);
 
     if (!fs.existsSync(filePath)) {
-      res.json({ exists: false, focus: [], tasks: [], notes: [] });
+      res.json({ exists: false, focus: [], activity: { created: [], completed: [] }, notes: [] });
       return;
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
     const sections = parseSections(content);
-    const tasks = parseTasks(content, date);
-    res.json({ exists: true, focus: sections.focus, tasks, notes: sections.notes });
+    const activity = parseActivityLog(content);
+    res.json({ exists: true, focus: sections.focus, activity, notes: sections.notes });
   } catch (err) {
     console.error("Error parsing daily sections:", err);
     res.status(500).json({ error: "Failed to parse sections" });
@@ -315,53 +399,12 @@ tasksRouter.put("/api/daily-sections/:date/notes", (req, res) => {
   }
 });
 
-/**
- * POST /api/tasks/:date
- * Add a new task to the daily note.
- */
-tasksRouter.post("/api/tasks/:date", (req, res) => {
-  try {
-    const date = formatDate(req.params.date);
-    const filePath = notePathForDate(date);
-    const { text, betSlug, jiraKey, clientSlug, partnerSlug } = req.body as {
-      text: string; betSlug?: string; jiraKey?: string; clientSlug?: string; partnerSlug?: string;
-    };
-
-    if (!text?.trim()) {
-      res.status(400).json({ error: "Task text is required" });
-      return;
-    }
-
-    if (!fs.existsSync(filePath)) {
-      res.status(404).json({ error: "Daily note not found" });
-      return;
-    }
-
-    // Build task line with optional links
-    let taskLine = text.trim();
-    if (betSlug) taskLine += ` [[${betSlug}]]`;
-    if (jiraKey) taskLine += ` #${jiraKey}`;
-    if (clientSlug) taskLine += ` {{client:${clientSlug}}}`;
-    if (partnerSlug) taskLine += ` {{partner:${partnerSlug}}}`;
-
-    const content = fs.readFileSync(filePath, "utf-8");
-    const updated = appendTasks(content, [taskLine]);
-    fs.writeFileSync(filePath, updated, "utf-8");
-
-    const tasks = parseTasks(updated, date);
-    res.json({ tasks });
-  } catch (err) {
-    console.error("Error adding task:", err);
-    res.status(500).json({ error: "Failed to add task" });
-  }
-});
+// --- Meetings (unchanged) ---
 
 /**
  * GET /api/meetings
- * List all meeting notes from Daily/meetings/, grouped by date.
+ * List all meeting notes from Daily/meetings/.
  */
-const MEETINGS_DIR = path.join(VAULT_PATH, "Daily/meetings");
-
 tasksRouter.get("/api/meetings", (_req, res) => {
   try {
     if (!fs.existsSync(MEETINGS_DIR)) {
@@ -376,7 +419,6 @@ tasksRouter.get("/api/meetings", (_req, res) => {
 
     const meetings = files.map((f) => {
       const name = f.replace(".md", "");
-      // Extract date from filename pattern YYYY-MM-DD-slug
       const dateMatch = name.match(/^(\d{4}-\d{2}-\d{2})-(.+)$/);
       return {
         filename: f,

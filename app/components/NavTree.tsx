@@ -1,9 +1,26 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { ScrollArea, ActionIcon, Tooltip, Badge, Loader } from "@mantine/core";
 import { TextInput } from "@mantine/core";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { BetSummary, JiraIdea, MeetingNote, ClientPartnerSummary, NavNode } from "~/types/navigation";
 import { navNodeId } from "~/types/navigation";
 import type { DeliveryEpic } from "~/hooks/useDelivery";
+import type { Priorities } from "~/hooks/usePriorities";
+import { sortByPriority } from "~/hooks/usePriorities";
 
 interface NavTreeProps {
   bets: BetSummary[];
@@ -16,6 +33,8 @@ interface NavTreeProps {
   onSelectNode: (node: NavNode) => void;
   loading?: boolean;
   onRefresh?: () => void;
+  priorities: Priorities;
+  onPriorityChange: (list: keyof Priorities, order: string[]) => void;
 }
 
 const BET_STATUS_COLORS: Record<string, string> = {
@@ -114,14 +133,35 @@ function FolderIcon() {
   );
 }
 
+function DragHandleIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      style={{ flexShrink: 0, opacity: 0.3, cursor: "grab" }}
+    >
+      <circle cx="9" cy="5" r="1.5" />
+      <circle cx="15" cy="5" r="1.5" />
+      <circle cx="9" cy="12" r="1.5" />
+      <circle cx="15" cy="12" r="1.5" />
+      <circle cx="9" cy="19" r="1.5" />
+      <circle cx="15" cy="19" r="1.5" />
+    </svg>
+  );
+}
+
 interface TreeRowProps {
   depth: number;
   selected?: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  draggable?: boolean;
 }
 
-function TreeRow({ depth, selected, onClick, children }: TreeRowProps) {
+function TreeRow({ depth, selected, onClick, children, draggable }: TreeRowProps) {
   return (
     <div
       onClick={onClick}
@@ -138,6 +178,7 @@ function TreeRow({ depth, selected, onClick, children }: TreeRowProps) {
         if (!selected) e.currentTarget.style.backgroundColor = "";
       }}
     >
+      {draggable && <DragHandleIcon />}
       {children}
     </div>
   );
@@ -164,6 +205,23 @@ function SectionHeader({
   );
 }
 
+/** Wrapper that makes a div sortable via @dnd-kit */
+function SortableItem({ id, children }: { id: string; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: "relative" as const,
+    zIndex: isDragging ? 10 : undefined,
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
+  );
+}
+
 export function NavTree({
   bets,
   ideas,
@@ -175,9 +233,15 @@ export function NavTree({
   onSelectNode,
   loading,
   onRefresh,
+  priorities,
+  onPriorityChange,
 }: NavTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["section:bets", "section:ideas"]));
   const [searchQuery, setSearchQuery] = useState("");
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
 
   const toggle = useCallback((key: string) => {
     setExpanded((prev) => {
@@ -217,23 +281,19 @@ export function NavTree({
       } else if (node.type === "bet-file") {
         next.add("section:bets");
         next.add(`bet:${node.slug}`);
-        // Expand notes or research folder
         if (node.filePath.startsWith("notes/")) next.add(`notes:${node.slug}`);
         if (node.filePath.startsWith("research/")) next.add(`research:${node.slug}`);
       } else if (node.type === "jira-idea") {
-        // Check if this idea belongs to a bet
         const parentBet = bets.find((b) => b.ideaKeys.includes(node.key));
         if (parentBet) {
           next.add("section:bets");
           next.add(`bet:${parentBet.slug}`);
         } else {
-          // Could be in delivery or ideas backlog
           next.add("section:delivery-ideas");
-          next.add("section:ideas");
+          next.add("section:ideas-without-bets");
         }
         next.add(`idea:${node.key}`);
       } else if (node.type === "jira-epic") {
-        // Find parent idea via delivery epics
         const parentEpic = deliveryEpics.find((e) => e.key === node.key);
         if (parentEpic?.idea) {
           const parentBet = bets.find((b) => b.ideaKeys.includes(parentEpic.idea!.key));
@@ -241,11 +301,11 @@ export function NavTree({
             next.add("section:bets");
             next.add(`bet:${parentBet.slug}`);
           } else {
-            next.add("section:delivery-ideas");
+            next.add("section:ideas-without-bets");
           }
           next.add(`idea:${parentEpic.idea.key}`);
         } else {
-          next.add("section:delivery-ideas");
+          next.add("section:orphan-epics");
         }
         next.add(`epic:${node.key}`);
       } else if (node.type === "client") {
@@ -267,7 +327,6 @@ export function NavTree({
         next.add(`partner:${node.slug}`);
         if (node.filePath.startsWith("notes/")) next.add(`partner-notes:${node.slug}`);
       } else if (node.type === "jira-story") {
-        // Find parent epic
         const parentEpic = deliveryEpics.find((e) =>
           e.children.some((c) => c.key === node.key || c.children?.some((s) => s.key === node.key))
         );
@@ -278,11 +337,11 @@ export function NavTree({
               next.add("section:bets");
               next.add(`bet:${parentBet.slug}`);
             } else {
-              next.add("section:delivery-ideas");
+              next.add("section:ideas-without-bets");
             }
             next.add(`idea:${parentEpic.idea.key}`);
           } else {
-            next.add("section:delivery-ideas");
+            next.add("section:orphan-epics");
           }
           next.add(`epic:${parentEpic.key}`);
         }
@@ -297,7 +356,6 @@ export function NavTree({
     if (ideaKeys.length === 0) return [];
     return ideaKeys
       .map((key) => {
-        // Try ideas list first, then delivery epics
         const fromIdeas = ideas.find((i) => i.key === key);
         if (fromIdeas) return fromIdeas;
         const fromEpic = deliveryEpics.find((e) => e.idea?.key === key)?.idea;
@@ -307,21 +365,29 @@ export function NavTree({
       .filter((i): i is NonNullable<typeof i> => i !== null);
   };
 
-  // Get ideas that are linked from delivery epics (these are "in delivery" ideas)
-  const linkedIdeaKeys = new Set(
-    deliveryEpics.filter((e) => e.idea).map((e) => e.idea!.key)
-  );
+  // All idea keys that are linked to a bet
+  const betLinkedIdeaKeys = new Set(bets.flatMap((b) => b.ideaKeys));
 
-  // Standalone ideas = ideas not linked from any delivery epic
-  const standaloneIdeas = ideas.filter((i) => !linkedIdeaKeys.has(i.key));
+  // Ideas without bets = ideas not linked to any bet (may have delivery epics)
+  const allIdeasWithoutBets = ideas.filter((i) => !betLinkedIdeaKeys.has(i.key));
+  // Also include ideas only known from delivery epics (not in ideas list)
+  const ideaKeysInIdeasList = new Set(ideas.map((i) => i.key));
+  const deliveryOnlyIdeasWithoutBets = deliveryEpics
+    .filter((e) => e.idea && !betLinkedIdeaKeys.has(e.idea.key) && !ideaKeysInIdeasList.has(e.idea.key))
+    .map((e) => e.idea!)
+    .filter((idea, idx, arr) => arr.findIndex((i) => i.key === idea.key) === idx);
+  const ideasWithoutBets = [...allIdeasWithoutBets, ...deliveryOnlyIdeasWithoutBets];
+
+  // Idea keys shown in "Ideas without Bets"
+  const ideasWithoutBetsKeys = new Set(ideasWithoutBets.map((i) => i.key));
 
   // Find delivery epics for a specific idea
   const epicsForIdea = (ideaKey: string) =>
     deliveryEpics.filter((e) => e.idea?.key === ideaKey);
 
-  // Get unique ideas from delivery epics
+  // Get unique ideas from delivery epics that belong to bets (for "In Delivery" section)
   const deliveryIdeas = deliveryEpics
-    .filter((e) => e.idea)
+    .filter((e) => e.idea && betLinkedIdeaKeys.has(e.idea.key))
     .reduce<{ key: string; summary: string; status: string; statusCategory: string; url: string }[]>(
       (acc, e) => {
         if (e.idea && !acc.find((a) => a.key === e.idea!.key)) {
@@ -332,20 +398,66 @@ export function NavTree({
       []
     );
 
-  // Orphan epics = delivery epics with no linked idea
+  // Orphan epics = delivery epics with no linked idea at all
   const orphanEpics = deliveryEpics.filter((e) => !e.idea);
+
+  // Apply priority sorting
+  const sortedBets = sortByPriority(bets, (b) => b.slug, priorities.bets);
+  const sortedIdeasWithoutBets = sortByPriority(ideasWithoutBets, (i) => i.key, priorities.ideasWithoutBets);
+  const sortedOrphanEpics = sortByPriority(orphanEpics, (e) => e.key, priorities.epicsWithoutIdeas);
+
+  // Sort delivery ideas by their parent bet's priority
+  const sortedDeliveryIdeas = sortByPriority(
+    deliveryIdeas,
+    (idea) => {
+      const parentBet = bets.find((b) => b.ideaKeys.includes(idea.key));
+      return parentBet?.slug ?? idea.key;
+    },
+    priorities.bets
+  );
 
   // Search filter
   const q = searchQuery.toLowerCase().trim();
   const matchesSearch = (text: string) => !q || text.toLowerCase().includes(q);
 
-  const filteredBets = q ? bets.filter((b) => matchesSearch(b.name) || matchesSearch(b.status) || b.ideaKeys.some((k) => matchesSearch(k))) : bets;
-  const filteredDeliveryIdeas = q ? deliveryIdeas.filter((i) => matchesSearch(i.summary) || matchesSearch(i.key)) : deliveryIdeas;
-  const filteredStandaloneIdeas = q ? standaloneIdeas.filter((i) => matchesSearch(i.summary) || matchesSearch(i.key)) : standaloneIdeas;
-  const filteredOrphanEpics = q ? orphanEpics.filter((e) => matchesSearch(e.summary) || matchesSearch(e.key)) : orphanEpics;
+  const filteredBets = q ? sortedBets.filter((b) => matchesSearch(b.name) || matchesSearch(b.status) || b.ideaKeys.some((k) => matchesSearch(k))) : sortedBets;
+  const filteredDeliveryIdeas = q ? sortedDeliveryIdeas.filter((i) => matchesSearch(i.summary) || matchesSearch(i.key)) : sortedDeliveryIdeas;
+  const filteredIdeasWithoutBets = q ? sortedIdeasWithoutBets.filter((i) => matchesSearch(i.summary) || matchesSearch(i.key)) : sortedIdeasWithoutBets;
+  const filteredOrphanEpics = q ? sortedOrphanEpics.filter((e) => matchesSearch(e.summary) || matchesSearch(e.key)) : sortedOrphanEpics;
   const filteredMeetings = q ? meetings.filter((m) => matchesSearch(m.name) || matchesSearch(m.date)) : meetings;
   const filteredClients = q ? clients.filter((c) => matchesSearch(c.name) || matchesSearch(c.relationship) || matchesSearch(c.contact)) : clients;
   const filteredPartners = q ? partners.filter((p) => matchesSearch(p.name) || matchesSearch(p.relationship) || matchesSearch(p.contact)) : partners;
+
+  // Drag-and-drop handlers
+  const handleBetDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const keys = filteredBets.map((b) => b.slug);
+    const oldIndex = keys.indexOf(active.id as string);
+    const newIndex = keys.indexOf(over.id as string);
+    if (oldIndex === -1 || newIndex === -1) return;
+    onPriorityChange("bets", arrayMove(keys, oldIndex, newIndex));
+  };
+
+  const handleIdeasWithoutBetsDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const keys = filteredIdeasWithoutBets.map((i) => i.key);
+    const oldIndex = keys.indexOf(active.id as string);
+    const newIndex = keys.indexOf(over.id as string);
+    if (oldIndex === -1 || newIndex === -1) return;
+    onPriorityChange("ideasWithoutBets", arrayMove(keys, oldIndex, newIndex));
+  };
+
+  const handleOrphanEpicsDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const keys = filteredOrphanEpics.map((e) => e.key);
+    const oldIndex = keys.indexOf(active.id as string);
+    const newIndex = keys.indexOf(over.id as string);
+    if (oldIndex === -1 || newIndex === -1) return;
+    onPriorityChange("epicsWithoutIdeas", arrayMove(keys, oldIndex, newIndex));
+  };
 
   return (
     <div
@@ -386,7 +498,7 @@ export function NavTree({
       {/* Tree */}
       <ScrollArea className="flex-1" type="auto" scrollbarSize={6}>
         <div className="py-1">
-          {/* === Bets Section === */}
+          {/* === Bets Section (sortable) === */}
           <SectionHeader
             expanded={expanded.has("section:bets")}
             onToggle={() => toggle("section:bets")}
@@ -394,202 +506,208 @@ export function NavTree({
             Bets
           </SectionHeader>
 
-          {expanded.has("section:bets") &&
-            filteredBets.map((bet) => {
-              const betExpanded = expanded.has(`bet:${bet.slug}`);
-              const betNode: NavNode = { type: "bet", slug: bet.slug, name: bet.name, status: bet.status };
-              const hasNotes = bet.files.notes.length > 0;
-              const hasResearch = bet.files.research.length > 0;
+          {expanded.has("section:bets") && (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleBetDragEnd}>
+              <SortableContext items={filteredBets.map((b) => b.slug)} strategy={verticalListSortingStrategy}>
+                {filteredBets.map((bet) => {
+                  const betExpanded = expanded.has(`bet:${bet.slug}`);
+                  const betNode: NavNode = { type: "bet", slug: bet.slug, name: bet.name, status: bet.status };
+                  const hasNotes = bet.files.notes.length > 0;
+                  const hasResearch = bet.files.research.length > 0;
 
-              return (
-                <div key={bet.slug}>
-                  {/* Bet row */}
-                  <TreeRow
-                    depth={0}
-                    selected={isSelected(betNode)}
-                    onClick={() => {
-                      handleSelectNode(betNode);
-                      toggle(`bet:${bet.slug}`);
-                    }}
-                  >
-                    <ChevronIcon expanded={betExpanded} />
-                    <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji("bet")}</span>
-                    <Badge
-                      size="xs"
-                      variant="filled"
-                      color={BET_STATUS_COLORS[bet.status] ?? "gray"}
-                      styles={{ root: { flexShrink: 0, textTransform: "none", fontWeight: 500 } }}
-                    >
-                      {bet.status}
-                    </Badge>
-                    <span className="truncate">{bet.name}</span>
-                  </TreeRow>
+                  return (
+                    <SortableItem key={bet.slug} id={bet.slug}>
+                      {/* Bet row */}
+                      <TreeRow
+                        depth={0}
+                        selected={isSelected(betNode)}
+                        onClick={() => {
+                          handleSelectNode(betNode);
+                          toggle(`bet:${bet.slug}`);
+                        }}
+                        draggable
+                      >
+                        <ChevronIcon expanded={betExpanded} />
+                        <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji("bet")}</span>
+                        <Badge
+                          size="xs"
+                          variant="filled"
+                          color={BET_STATUS_COLORS[bet.status] ?? "gray"}
+                          styles={{ root: { flexShrink: 0, textTransform: "none", fontWeight: 500 } }}
+                        >
+                          {bet.status}
+                        </Badge>
+                        <span className="truncate">{bet.name}</span>
+                      </TreeRow>
 
-                  {betExpanded && (
-                    <>
-                      {/* Notes folder */}
-                      {hasNotes && (
+                      {betExpanded && (
                         <>
-                          <TreeRow depth={1} onClick={() => toggle(`notes:${bet.slug}`)}>
-                            <ChevronIcon expanded={expanded.has(`notes:${bet.slug}`)} />
-                            <FolderIcon />
-                            <span className="truncate opacity-80">notes</span>
-                            <span className="ml-auto text-xs opacity-40">{bet.files.notes.length}</span>
-                          </TreeRow>
-                          {expanded.has(`notes:${bet.slug}`) &&
-                            bet.files.notes.map((f) => {
-                              const fileNode: NavNode = {
-                                type: "bet-file",
-                                slug: bet.slug,
-                                filePath: `notes/${f}`,
-                                fileName: f,
-                              };
-                              return (
-                                <TreeRow
-                                  key={f}
-                                  depth={3}
-                                  selected={isSelected(fileNode)}
-                                  onClick={() => handleSelectNode(fileNode)}
-                                >
-                                  <FileIcon />
-                                  <span className="truncate opacity-80">{f}</span>
-                                </TreeRow>
-                              );
-                            })}
-                        </>
-                      )}
-
-                      {/* Research folder */}
-                      {hasResearch && (
-                        <>
-                          <TreeRow depth={1} onClick={() => toggle(`research:${bet.slug}`)}>
-                            <ChevronIcon expanded={expanded.has(`research:${bet.slug}`)} />
-                            <FolderIcon />
-                            <span className="truncate opacity-80">research</span>
-                            <span className="ml-auto text-xs opacity-40">{bet.files.research.length}</span>
-                          </TreeRow>
-                          {expanded.has(`research:${bet.slug}`) &&
-                            bet.files.research.map((f) => {
-                              const fileNode: NavNode = {
-                                type: "bet-file",
-                                slug: bet.slug,
-                                filePath: `research/${f}`,
-                                fileName: f,
-                              };
-                              return (
-                                <TreeRow
-                                  key={f}
-                                  depth={3}
-                                  selected={isSelected(fileNode)}
-                                  onClick={() => handleSelectNode(fileNode)}
-                                >
-                                  <FileIcon />
-                                  <span className="truncate opacity-80">{f}</span>
-                                </TreeRow>
-                              );
-                            })}
-                        </>
-                      )}
-
-                      {/* Linked Ideas (from **Ideas:** field in bet.md) */}
-                      {betLinkedIdeas(bet.ideaKeys).map((idea) => {
-                        const ideaEpics = epicsForIdea(idea.key);
-                        const ideaExpanded = expanded.has(`idea:${idea.key}`);
-                        const ideaNode: NavNode = {
-                          type: "jira-idea",
-                          key: idea.key,
-                          summary: idea.summary,
-                          status: idea.status,
-                          statusCategory: idea.statusCategory,
-                          url: idea.url,
-                        };
-
-                        return (
-                          <div key={idea.key}>
-                            <TreeRow
-                              depth={1}
-                              selected={isSelected(ideaNode)}
-                              onClick={() => {
-                                handleSelectNode(ideaNode);
-                                if (ideaEpics.length > 0) toggle(`idea:${idea.key}`);
-                              }}
-                            >
-                              {ideaEpics.length > 0 ? (
-                                <ChevronIcon expanded={ideaExpanded} />
-                              ) : (
-                                <span style={{ width: 14, flexShrink: 0 }} />
-                              )}
-                              <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji("idea")}</span>
-                              <span className="truncate">{idea.summary}</span>
-                            </TreeRow>
-
-                            {ideaExpanded &&
-                              ideaEpics.map((epic) => {
-                                const epicNode: NavNode = {
-                                  type: "jira-epic",
-                                  key: epic.key,
-                                  summary: epic.summary,
-                                  status: epic.status,
-                                  statusCategory: epic.statusCategory,
-                                  url: epic.url,
-                                  issueType: "Epic",
-                                };
-                                const epicExp = expanded.has(`epic:${epic.key}`);
-
-                                return (
-                                  <div key={epic.key}>
+                          {/* Notes folder */}
+                          {hasNotes && (
+                            <>
+                              <TreeRow depth={1} onClick={() => toggle(`notes:${bet.slug}`)}>
+                                <ChevronIcon expanded={expanded.has(`notes:${bet.slug}`)} />
+                                <FolderIcon />
+                                <span className="truncate opacity-80">notes</span>
+                                <span className="ml-auto text-xs opacity-40">{bet.files.notes.length}</span>
+                              </TreeRow>
+                              {expanded.has(`notes:${bet.slug}`) &&
+                                bet.files.notes.map((f) => {
+                                  const fileNode: NavNode = {
+                                    type: "bet-file",
+                                    slug: bet.slug,
+                                    filePath: `notes/${f}`,
+                                    fileName: f,
+                                  };
+                                  return (
                                     <TreeRow
-                                      depth={2}
-                                      selected={isSelected(epicNode)}
-                                      onClick={() => {
-                                        handleSelectNode(epicNode);
-                                        if (epic.children.length > 0) toggle(`epic:${epic.key}`);
-                                      }}
+                                      key={f}
+                                      depth={3}
+                                      selected={isSelected(fileNode)}
+                                      onClick={() => handleSelectNode(fileNode)}
                                     >
-                                      {epic.children.length > 0 ? (
-                                        <ChevronIcon expanded={epicExp} />
-                                      ) : (
-                                        <span style={{ width: 14, flexShrink: 0 }} />
-                                      )}
-                                      <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji("epic")}</span>
-                                      <span className="truncate">{epic.summary}</span>
+                                      <FileIcon />
+                                      <span className="truncate opacity-80">{f}</span>
                                     </TreeRow>
+                                  );
+                                })}
+                            </>
+                          )}
 
-                                    {epicExp &&
-                                      epic.children.map((story) => {
-                                        const storyNode: NavNode = {
-                                          type: "jira-story",
-                                          key: story.key,
-                                          summary: story.summary,
-                                          status: story.status,
-                                          statusCategory: story.statusCategory,
-                                          url: story.url,
-                                          issueType: story.issueType,
-                                        };
-                                        return (
-                                          <TreeRow
-                                            key={story.key}
-                                            depth={3}
-                                            selected={isSelected(storyNode)}
-                                            onClick={() => handleSelectNode(storyNode)}
-                                          >
+                          {/* Research folder */}
+                          {hasResearch && (
+                            <>
+                              <TreeRow depth={1} onClick={() => toggle(`research:${bet.slug}`)}>
+                                <ChevronIcon expanded={expanded.has(`research:${bet.slug}`)} />
+                                <FolderIcon />
+                                <span className="truncate opacity-80">research</span>
+                                <span className="ml-auto text-xs opacity-40">{bet.files.research.length}</span>
+                              </TreeRow>
+                              {expanded.has(`research:${bet.slug}`) &&
+                                bet.files.research.map((f) => {
+                                  const fileNode: NavNode = {
+                                    type: "bet-file",
+                                    slug: bet.slug,
+                                    filePath: `research/${f}`,
+                                    fileName: f,
+                                  };
+                                  return (
+                                    <TreeRow
+                                      key={f}
+                                      depth={3}
+                                      selected={isSelected(fileNode)}
+                                      onClick={() => handleSelectNode(fileNode)}
+                                    >
+                                      <FileIcon />
+                                      <span className="truncate opacity-80">{f}</span>
+                                    </TreeRow>
+                                  );
+                                })}
+                            </>
+                          )}
+
+                          {/* Linked Ideas */}
+                          {betLinkedIdeas(bet.ideaKeys).map((idea) => {
+                            const ideaEpics = epicsForIdea(idea.key);
+                            const ideaExpanded = expanded.has(`idea:${idea.key}`);
+                            const ideaNode: NavNode = {
+                              type: "jira-idea",
+                              key: idea.key,
+                              summary: idea.summary,
+                              status: idea.status,
+                              statusCategory: idea.statusCategory,
+                              url: idea.url,
+                            };
+
+                            return (
+                              <div key={idea.key}>
+                                <TreeRow
+                                  depth={1}
+                                  selected={isSelected(ideaNode)}
+                                  onClick={() => {
+                                    handleSelectNode(ideaNode);
+                                    if (ideaEpics.length > 0) toggle(`idea:${idea.key}`);
+                                  }}
+                                >
+                                  {ideaEpics.length > 0 ? (
+                                    <ChevronIcon expanded={ideaExpanded} />
+                                  ) : (
+                                    <span style={{ width: 14, flexShrink: 0 }} />
+                                  )}
+                                  <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji("idea")}</span>
+                                  <span className="truncate">{idea.summary}</span>
+                                </TreeRow>
+
+                                {ideaExpanded &&
+                                  ideaEpics.map((epic) => {
+                                    const epicNode: NavNode = {
+                                      type: "jira-epic",
+                                      key: epic.key,
+                                      summary: epic.summary,
+                                      status: epic.status,
+                                      statusCategory: epic.statusCategory,
+                                      url: epic.url,
+                                      issueType: "Epic",
+                                    };
+                                    const epicExp = expanded.has(`epic:${epic.key}`);
+
+                                    return (
+                                      <div key={epic.key}>
+                                        <TreeRow
+                                          depth={2}
+                                          selected={isSelected(epicNode)}
+                                          onClick={() => {
+                                            handleSelectNode(epicNode);
+                                            if (epic.children.length > 0) toggle(`epic:${epic.key}`);
+                                          }}
+                                        >
+                                          {epic.children.length > 0 ? (
+                                            <ChevronIcon expanded={epicExp} />
+                                          ) : (
                                             <span style={{ width: 14, flexShrink: 0 }} />
-                                            <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji(story.issueType)}</span>
-                                            <span className="truncate">{story.summary}</span>
-                                          </TreeRow>
-                                        );
-                                      })}
-                                  </div>
-                                );
-                              })}
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
-                </div>
-              );
-            })}
+                                          )}
+                                          <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji("epic")}</span>
+                                          <span className="truncate">{epic.summary}</span>
+                                        </TreeRow>
+
+                                        {epicExp &&
+                                          epic.children.map((story) => {
+                                            const storyNode: NavNode = {
+                                              type: "jira-story",
+                                              key: story.key,
+                                              summary: story.summary,
+                                              status: story.status,
+                                              statusCategory: story.statusCategory,
+                                              url: story.url,
+                                              issueType: story.issueType,
+                                            };
+                                            return (
+                                              <TreeRow
+                                                key={story.key}
+                                                depth={3}
+                                                selected={isSelected(storyNode)}
+                                                onClick={() => handleSelectNode(storyNode)}
+                                              >
+                                                <span style={{ width: 14, flexShrink: 0 }} />
+                                                <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji(story.issueType)}</span>
+                                                <span className="truncate">{story.summary}</span>
+                                              </TreeRow>
+                                            );
+                                          })}
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            );
+                          })}
+                        </>
+                      )}
+                    </SortableItem>
+                  );
+                })}
+              </SortableContext>
+            </DndContext>
+          )}
 
           {/* === Ideas in Delivery Section === */}
           {filteredDeliveryIdeas.length > 0 && (
@@ -698,43 +816,120 @@ export function NavTree({
             </>
           )}
 
-          {/* === Ideas Backlog Section === */}
-          {filteredStandaloneIdeas.length > 0 && (
+          {/* === Ideas without Bets Section (sortable) === */}
+          {filteredIdeasWithoutBets.length > 0 && (
             <>
               <SectionHeader
-                expanded={expanded.has("section:ideas")}
-                onToggle={() => toggle("section:ideas")}
+                expanded={expanded.has("section:ideas-without-bets")}
+                onToggle={() => toggle("section:ideas-without-bets")}
               >
-                Ideas Backlog
+                Ideas without Bets
               </SectionHeader>
 
-              {expanded.has("section:ideas") &&
-                filteredStandaloneIdeas.map((idea) => {
-                  const ideaNode: NavNode = {
-                    type: "jira-idea",
-                    key: idea.key,
-                    summary: idea.summary,
-                    status: idea.status,
-                    statusCategory: idea.statusCategory,
-                    url: idea.url,
-                  };
-                  return (
-                    <TreeRow
-                      key={idea.key}
-                      depth={0}
-                      selected={isSelected(ideaNode)}
-                      onClick={() => handleSelectNode(ideaNode)}
-                    >
-                      <span style={{ width: 14, flexShrink: 0 }} />
-                      <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji("idea")}</span>
-                      <span className="truncate">{idea.summary}</span>
-                    </TreeRow>
-                  );
-                })}
+              {expanded.has("section:ideas-without-bets") && (
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleIdeasWithoutBetsDragEnd}>
+                  <SortableContext items={filteredIdeasWithoutBets.map((i) => i.key)} strategy={verticalListSortingStrategy}>
+                    {filteredIdeasWithoutBets.map((idea) => {
+                      const ideaEpics = epicsForIdea(idea.key);
+                      const ideaExpanded = expanded.has(`idea:${idea.key}`);
+                      const ideaNode: NavNode = {
+                        type: "jira-idea",
+                        key: idea.key,
+                        summary: idea.summary,
+                        status: idea.status,
+                        statusCategory: idea.statusCategory,
+                        url: idea.url,
+                      };
+
+                      return (
+                        <SortableItem key={idea.key} id={idea.key}>
+                          <TreeRow
+                            depth={0}
+                            selected={isSelected(ideaNode)}
+                            onClick={() => {
+                              handleSelectNode(ideaNode);
+                              if (ideaEpics.length > 0) toggle(`idea:${idea.key}`);
+                            }}
+                            draggable
+                          >
+                            {ideaEpics.length > 0 ? (
+                              <ChevronIcon expanded={ideaExpanded} />
+                            ) : (
+                              <span style={{ width: 14, flexShrink: 0 }} />
+                            )}
+                            <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji("idea")}</span>
+                            <span className="truncate">{idea.summary}</span>
+                          </TreeRow>
+
+                          {ideaExpanded &&
+                            ideaEpics.map((epic) => {
+                              const epicNode: NavNode = {
+                                type: "jira-epic",
+                                key: epic.key,
+                                summary: epic.summary,
+                                status: epic.status,
+                                statusCategory: epic.statusCategory,
+                                url: epic.url,
+                                issueType: "Epic",
+                              };
+                              const epicExp = expanded.has(`epic:${epic.key}`);
+
+                              return (
+                                <div key={epic.key}>
+                                  <TreeRow
+                                    depth={1}
+                                    selected={isSelected(epicNode)}
+                                    onClick={() => {
+                                      handleSelectNode(epicNode);
+                                      if (epic.children.length > 0) toggle(`epic:${epic.key}`);
+                                    }}
+                                  >
+                                    {epic.children.length > 0 ? (
+                                      <ChevronIcon expanded={epicExp} />
+                                    ) : (
+                                      <span style={{ width: 14, flexShrink: 0 }} />
+                                    )}
+                                    <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji("epic")}</span>
+                                    <span className="truncate">{epic.summary}</span>
+                                  </TreeRow>
+
+                                  {epicExp &&
+                                    epic.children.map((story) => {
+                                      const storyNode: NavNode = {
+                                        type: "jira-story",
+                                        key: story.key,
+                                        summary: story.summary,
+                                        status: story.status,
+                                        statusCategory: story.statusCategory,
+                                        url: story.url,
+                                        issueType: story.issueType,
+                                      };
+                                      return (
+                                        <TreeRow
+                                          key={story.key}
+                                          depth={2}
+                                          selected={isSelected(storyNode)}
+                                          onClick={() => handleSelectNode(storyNode)}
+                                        >
+                                          <span style={{ width: 14, flexShrink: 0 }} />
+                                          <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji(story.issueType)}</span>
+                                          <span className="truncate">{story.summary}</span>
+                                        </TreeRow>
+                                      );
+                                    })}
+                                </div>
+                              );
+                            })}
+                        </SortableItem>
+                      );
+                    })}
+                  </SortableContext>
+                </DndContext>
+              )}
             </>
           )}
 
-          {/* === Epics without Ideas Section === */}
+          {/* === Epics without Ideas Section (sortable) === */}
           {filteredOrphanEpics.length > 0 && (
             <>
               <SectionHeader
@@ -744,65 +939,71 @@ export function NavTree({
                 Epics without Ideas
               </SectionHeader>
 
-              {expanded.has("section:orphan-epics") &&
-                filteredOrphanEpics.map((epic) => {
-                  const epicNode: NavNode = {
-                    type: "jira-epic",
-                    key: epic.key,
-                    summary: epic.summary,
-                    status: epic.status,
-                    statusCategory: epic.statusCategory,
-                    url: epic.url,
-                    issueType: "Epic",
-                  };
-                  const epicExp = expanded.has(`epic:${epic.key}`);
+              {expanded.has("section:orphan-epics") && (
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleOrphanEpicsDragEnd}>
+                  <SortableContext items={filteredOrphanEpics.map((e) => e.key)} strategy={verticalListSortingStrategy}>
+                    {filteredOrphanEpics.map((epic) => {
+                      const epicNode: NavNode = {
+                        type: "jira-epic",
+                        key: epic.key,
+                        summary: epic.summary,
+                        status: epic.status,
+                        statusCategory: epic.statusCategory,
+                        url: epic.url,
+                        issueType: "Epic",
+                      };
+                      const epicExp = expanded.has(`epic:${epic.key}`);
 
-                  return (
-                    <div key={epic.key}>
-                      <TreeRow
-                        depth={0}
-                        selected={isSelected(epicNode)}
-                        onClick={() => {
-                          handleSelectNode(epicNode);
-                          if (epic.children.length > 0) toggle(`epic:${epic.key}`);
-                        }}
-                      >
-                        {epic.children.length > 0 ? (
-                          <ChevronIcon expanded={epicExp} />
-                        ) : (
-                          <span style={{ width: 14, flexShrink: 0 }} />
-                        )}
-                        <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji("epic")}</span>
-                        <span className="truncate">{epic.summary}</span>
-                      </TreeRow>
-
-                      {epicExp &&
-                        epic.children.map((story) => {
-                          const storyNode: NavNode = {
-                            type: "jira-story",
-                            key: story.key,
-                            summary: story.summary,
-                            status: story.status,
-                            statusCategory: story.statusCategory,
-                            url: story.url,
-                            issueType: story.issueType,
-                          };
-                          return (
-                            <TreeRow
-                              key={story.key}
-                              depth={1}
-                              selected={isSelected(storyNode)}
-                              onClick={() => handleSelectNode(storyNode)}
-                            >
+                      return (
+                        <SortableItem key={epic.key} id={epic.key}>
+                          <TreeRow
+                            depth={0}
+                            selected={isSelected(epicNode)}
+                            onClick={() => {
+                              handleSelectNode(epicNode);
+                              if (epic.children.length > 0) toggle(`epic:${epic.key}`);
+                            }}
+                            draggable
+                          >
+                            {epic.children.length > 0 ? (
+                              <ChevronIcon expanded={epicExp} />
+                            ) : (
                               <span style={{ width: 14, flexShrink: 0 }} />
-                              <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji(story.issueType)}</span>
-                              <span className="truncate">{story.summary}</span>
-                            </TreeRow>
-                          );
-                        })}
-                    </div>
-                  );
-                })}
+                            )}
+                            <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji("epic")}</span>
+                            <span className="truncate">{epic.summary}</span>
+                          </TreeRow>
+
+                          {epicExp &&
+                            epic.children.map((story) => {
+                              const storyNode: NavNode = {
+                                type: "jira-story",
+                                key: story.key,
+                                summary: story.summary,
+                                status: story.status,
+                                statusCategory: story.statusCategory,
+                                url: story.url,
+                                issueType: story.issueType,
+                              };
+                              return (
+                                <TreeRow
+                                  key={story.key}
+                                  depth={1}
+                                  selected={isSelected(storyNode)}
+                                  onClick={() => handleSelectNode(storyNode)}
+                                >
+                                  <span style={{ width: 14, flexShrink: 0 }} />
+                                  <span style={{ fontSize: 14, flexShrink: 0 }}>{issueTypeEmoji(story.issueType)}</span>
+                                  <span className="truncate">{story.summary}</span>
+                                </TreeRow>
+                              );
+                            })}
+                        </SortableItem>
+                      );
+                    })}
+                  </SortableContext>
+                </DndContext>
+              )}
             </>
           )}
 
@@ -983,7 +1184,6 @@ export function NavTree({
               </SectionHeader>
 
               {expanded.has("section:meetings") && (() => {
-                // Group meetings by date
                 const byDate = new Map<string, MeetingNote[]>();
                 for (const m of filteredMeetings) {
                   const date = m.date || "Unknown";

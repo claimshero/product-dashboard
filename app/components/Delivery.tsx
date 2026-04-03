@@ -132,13 +132,17 @@ function IssueRow({
           <span style={{ fontSize: 14, flexShrink: 0 }}>
             {issueTypeEmoji(issue.issueType)}
           </span>
-          <Text
-            size="xs"
-            c="dimmed"
-            style={{ minWidth: 72, fontFamily: "monospace" }}
+          <a
+            href={`https://claimable.atlassian.net/browse/${issue.key}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            style={{ minWidth: 72, fontFamily: "monospace", fontSize: "var(--mantine-font-size-xs)", color: "var(--mantine-color-blue-4)", textDecoration: "none" }}
+            onMouseOver={(e) => (e.currentTarget.style.textDecoration = "underline")}
+            onMouseOut={(e) => (e.currentTarget.style.textDecoration = "none")}
           >
             {issue.key}
-          </Text>
+          </a>
           <div className="min-w-0 flex-1">
             <Text size="sm" c="gray.2" lineClamp={1}>
               {issue.summary}
@@ -240,9 +244,17 @@ function EpicCard({
               {epic.status}
             </Badge>
           </div>
-          <Text size="xs" c="dimmed" style={{ fontFamily: "monospace" }}>
+          <a
+            href={epic.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            style={{ fontFamily: "monospace", fontSize: "var(--mantine-font-size-xs)", color: "var(--mantine-color-blue-4)", textDecoration: "none" }}
+            onMouseOver={(e) => (e.currentTarget.style.textDecoration = "underline")}
+            onMouseOut={(e) => (e.currentTarget.style.textDecoration = "none")}
+          >
             {epic.key}
-          </Text>
+          </a>
         </div>
         <Tooltip label="Open in Jira">
           <ActionIcon
@@ -402,13 +414,17 @@ function IdeaGroupCard({
             >
               {group.idea.status}
             </Badge>
-            <Text
-              size="xs"
-              c="dimmed"
-              style={{ fontFamily: "monospace", flexShrink: 0 }}
+            <a
+              href={group.idea.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              style={{ fontFamily: "monospace", fontSize: "var(--mantine-font-size-xs)", color: "var(--mantine-color-blue-4)", textDecoration: "none", flexShrink: 0 }}
+              onMouseOver={(e) => (e.currentTarget.style.textDecoration = "underline")}
+              onMouseOut={(e) => (e.currentTarget.style.textDecoration = "none")}
             >
               {group.idea.key}
-            </Text>
+            </a>
           </div>
         ) : (
           <Text size="sm" fw={600} c="dimmed" className="flex-1">

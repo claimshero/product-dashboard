@@ -10,14 +10,16 @@ interface TaskListProps {
   compact?: boolean;
 }
 
-/** Strip [[bet-slug]], #DB-xxx, {{client:slug}}, {{partner:slug}}, and {{urgency:x}} from display text */
+/** Strip metadata tags and date annotations from display text */
 function cleanTaskText(text: string): string {
   return text
     .replace(/\[\[[a-z0-9-]+\]\]/g, "")
-    .replace(/#[A-Z]+-\d+/g, "")
+    .replace(/(?:#|\[\[)[A-Z]+-\d+(?:\]\])?/g, "")
     .replace(/\{\{client:[a-z0-9-]+\}\}/g, "")
     .replace(/\{\{partner:[a-z0-9-]+\}\}/g, "")
     .replace(/\{\{urgency:(high|medium|low)\}\}/g, "")
+    .replace(/\(created: \d{4}-\d{2}-\d{2}\)/g, "")
+    .replace(/\(completed: \d{4}-\d{2}-\d{2}\)/g, "")
     .trim();
 }
 
@@ -71,7 +73,17 @@ export function TaskList({ tasks, onToggle, onDelete, onTaskClick, selectedTaskI
                   </Badge>
                 )}
                 {task.jiraKey && (
-                  <Badge size="xs" variant="dot" color="blue">
+                  <Badge
+                    size="xs"
+                    variant="dot"
+                    color="blue"
+                    component="a"
+                    href={`https://claimable.atlassian.net/browse/${task.jiraKey}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                    style={{ cursor: "pointer", textDecoration: "none" }}
+                  >
                     {task.jiraKey}
                   </Badge>
                 )}
@@ -87,9 +99,9 @@ export function TaskList({ tasks, onToggle, onDelete, onTaskClick, selectedTaskI
                 )}
               </div>
             )}
-            {!compact && task.date !== new Date().toISOString().slice(0, 10) && (
+            {!compact && task.category !== "general" && (
               <Text size="xs" c="dimmed">
-                {task.date}
+                {task.category}
               </Text>
             )}
           </div>

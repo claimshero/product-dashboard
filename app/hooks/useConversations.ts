@@ -30,7 +30,7 @@ export interface ChatContext {
     clientSlug: string | null;
     partnerSlug: string | null;
     urgency: string | null;
-    date: string;
+    category: string;
   } | null;
 }
 

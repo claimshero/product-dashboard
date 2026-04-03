@@ -21,6 +21,7 @@ import { jiraRouter } from "./jira.js";
 import { scheduledTasksRouter } from "./scheduled-tasks-router.js";
 import { trackedInterestsRouter } from "./tracked-interests-router.js";
 import { clientsPartnersRouter } from "./clients-partners.js";
+import { prioritiesRouter } from "./priorities.js";
 import { startScheduler } from "./scheduler.js";
 import { loadTaskDefinitions, createTaskDefinitionWithId, updateTaskDefinition } from "./scheduled-tasks.js";
 import {
@@ -55,7 +56,7 @@ interface ChatContext {
     clientSlug: string | null;
     partnerSlug: string | null;
     urgency: string | null;
-    date: string;
+    category: string;
   } | null;
 }
 
@@ -102,13 +103,13 @@ function buildSystemPrompt(context?: ChatContext): string {
     prompt += `\n\n## Currently selected task\nThe user has selected this task in the dashboard. When they refer to "this task" or "the task", they mean:\n`;
     prompt += `- **Text:** ${task.text}\n`;
     prompt += `- **Status:** ${task.completed ? "Completed" : "To Do"}\n`;
-    prompt += `- **Date:** ${task.date}\n`;
+    prompt += `- **Category:** ${task.category}\n`;
     if (task.urgency) prompt += `- **Urgency:** ${task.urgency}\n`;
     if (task.betSlug) prompt += `- **Bet:** ${task.betSlug}\n`;
     if (task.jiraKey) prompt += `- **JIRA:** ${task.jiraKey}\n`;
     if (task.clientSlug) prompt += `- **Client:** ${task.clientSlug}\n`;
     if (task.partnerSlug) prompt += `- **Partner:** ${task.partnerSlug}\n`;
-    prompt += `\nThe task lives in the daily note at Daily/${task.date}.md under the ## Tasks section.`;
+    prompt += `\nThe task lives in the file Tasks/${task.category}.md in the Obsidian vault.`;
   }
 
   return prompt;
@@ -145,6 +146,7 @@ app.use(jiraRouter);
 app.use(scheduledTasksRouter);
 app.use(trackedInterestsRouter);
 app.use(clientsPartnersRouter);
+app.use(prioritiesRouter);
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });

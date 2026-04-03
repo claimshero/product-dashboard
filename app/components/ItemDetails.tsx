@@ -149,9 +149,16 @@ export function ItemDetails({
       <div className="border-b border-[var(--mantine-color-dark-4)] px-4 py-3">
         <div className="flex items-center gap-2">
           <span style={{ fontSize: 16 }}>{issueTypeEmoji(displayType)}</span>
-          <Text size="xs" c="dimmed" style={{ fontFamily: "monospace" }}>
+          <a
+            href={selectedItem.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontFamily: "monospace", fontSize: "var(--mantine-font-size-xs)", color: "var(--mantine-color-blue-4)", textDecoration: "none" }}
+            onMouseOver={(e) => (e.currentTarget.style.textDecoration = "underline")}
+            onMouseOut={(e) => (e.currentTarget.style.textDecoration = "none")}
+          >
             {selectedItem.key}
-          </Text>
+          </a>
           <Badge
             size="xs"
             variant="light"

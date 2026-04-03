@@ -6,57 +6,39 @@ function getChatUrl(path: string): string {
   return `${window.location.protocol}//${window.location.hostname}:4001${path}`;
 }
 
-/**
- * Fetches all open (incomplete) tasks across recent daily notes.
- * Powers the "Next Steps" section in the left nav.
- */
-export function useOpenTasks() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchOpenTasks = useCallback(async () => {
-    try {
-      const res = await fetch(getChatUrl("/api/tasks/open"));
-      if (res.ok) {
-        const data = await res.json();
-        setTasks(data.tasks ?? []);
-      }
-    } catch (err) {
-      console.error("Failed to fetch open tasks:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchOpenTasks();
-  }, [fetchOpenTasks]);
-
-  return { tasks, loading, refresh: fetchOpenTasks };
+interface TaskFilters {
+  status?: "open" | "completed" | "all";
+  category?: string;
+  urgency?: string;
 }
 
 /**
- * Fetches all tasks (complete + incomplete) for a specific date.
- * Powers the right pane task list in DailyNotes.
+ * Fetches tasks across all category files with optional filters.
  */
-export function useDayTasks(date: string) {
+export function useAllTasks(filters?: TaskFilters) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchTasks = useCallback(async () => {
-    if (!date) return;
     try {
-      const res = await fetch(getChatUrl(`/api/tasks/${date}`));
+      const params = new URLSearchParams();
+      if (filters?.status) params.set("status", filters.status);
+      if (filters?.category) params.set("category", filters.category);
+      if (filters?.urgency) params.set("urgency", filters.urgency);
+
+      const qs = params.toString();
+      const url = getChatUrl(`/api/tasks${qs ? `?${qs}` : ""}`);
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setTasks(data.tasks ?? []);
       }
     } catch (err) {
-      console.error("Failed to fetch day tasks:", err);
+      console.error("Failed to fetch tasks:", err);
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [filters?.status, filters?.category, filters?.urgency]);
 
   useEffect(() => {
     fetchTasks();
@@ -66,11 +48,36 @@ export function useDayTasks(date: string) {
 }
 
 /**
- * Toggle a task's completion status. Returns the updated task.
+ * Fetches list of task category names.
  */
-export async function toggleTaskApi(date: string, lineIndex: number): Promise<Task | null> {
+export function useTaskCategories() {
+  const [categories, setCategories] = useState<string[]>([]);
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await fetch(getChatUrl("/api/tasks/categories"));
+      if (res.ok) {
+        const data = await res.json();
+        setCategories(data.categories ?? []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch categories:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
+
+  return { categories, refresh: fetchCategories };
+}
+
+/**
+ * Toggle a task's completion status.
+ */
+export async function toggleTaskApi(category: string, lineIndex: number): Promise<Task | null> {
   try {
-    const res = await fetch(getChatUrl(`/api/tasks/${date}/${lineIndex}/toggle`), {
+    const res = await fetch(getChatUrl(`/api/tasks/${category}/${lineIndex}/toggle`), {
       method: "PUT",
     });
     if (res.ok) {
@@ -81,4 +88,54 @@ export async function toggleTaskApi(date: string, lineIndex: number): Promise<Ta
     console.error("Failed to toggle task:", err);
   }
   return null;
+}
+
+/**
+ * Create a new task.
+ */
+export async function createTaskApi(
+  text: string,
+  opts?: { betSlug?: string; jiraKey?: string; clientSlug?: string; partnerSlug?: string; urgency?: string }
+): Promise<void> {
+  try {
+    await fetch(getChatUrl("/api/tasks"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, ...opts }),
+    });
+  } catch (err) {
+    console.error("Failed to create task:", err);
+  }
+}
+
+/**
+ * Delete a task.
+ */
+export async function deleteTaskApi(category: string, lineIndex: number): Promise<void> {
+  try {
+    await fetch(getChatUrl(`/api/tasks/${category}/${lineIndex}`), {
+      method: "DELETE",
+    });
+  } catch (err) {
+    console.error("Failed to delete task:", err);
+  }
+}
+
+/**
+ * Update a task's description.
+ */
+export async function updateTaskDescriptionApi(
+  category: string,
+  lineIndex: number,
+  description: string
+): Promise<void> {
+  try {
+    await fetch(getChatUrl(`/api/tasks/${category}/${lineIndex}/description`), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description }),
+    });
+  } catch (err) {
+    console.error("Failed to update description:", err);
+  }
 }

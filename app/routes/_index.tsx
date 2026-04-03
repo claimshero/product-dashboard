@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { ChatInterface } from "~/components/ChatInterface";
-import { DailyNotes } from "~/components/DailyNotes";
+import { RightPanel } from "~/components/RightPanel";
 import { ItemDetails } from "~/components/ItemDetails";
 import { NavTree } from "~/components/NavTree";
 import { SettingsDrawer } from "~/components/SettingsDrawer";
@@ -9,9 +9,10 @@ import { useBets } from "~/hooks/useBets";
 import { useDelivery, type SelectedItem } from "~/hooks/useDelivery";
 import { useIdeas } from "~/hooks/useIdeas";
 import { useConversations, type ChatContext } from "~/hooks/useConversations";
-import { useOpenTasks } from "~/hooks/useTasks";
+import { useAllTasks } from "~/hooks/useTasks";
 import { useMeetings } from "~/hooks/useMeetings";
 import { useClientsPartners } from "~/hooks/useClientsPartners";
+import { usePriorities } from "~/hooks/usePriorities";
 import type { NavNode } from "~/types/navigation";
 import { navNodeToSelectedItem } from "~/types/navigation";
 import type { Task } from "~/types/tasks";
@@ -163,13 +164,14 @@ export default function Index() {
   const { ideas, loading: ideasLoading, refresh: refreshIdeas } = useIdeas();
 
   // Task hooks
-  const { tasks: openTasks, refresh: refreshOpenTasks } = useOpenTasks();
+  const { tasks: openTasks, refresh: refreshOpenTasks } = useAllTasks({ status: "open" });
 
   // Meeting hooks
   const { meetings, refresh: refreshMeetings } = useMeetings();
 
   // Client/Partner hooks
   const { clients, partners, refresh: refreshClientsPartners } = useClientsPartners();
+  const { priorities, updateList: updatePriorityList } = usePriorities();
 
   // Auto-refresh all data when chat streaming finishes (agent may have written files)
   const wasStreamingRef = useRef(false);
@@ -221,7 +223,7 @@ export default function Index() {
         clientSlug: selectedTask.clientSlug,
         partnerSlug: selectedTask.partnerSlug,
         urgency: selectedTask.urgency,
-        date: selectedTask.date,
+        category: selectedTask.category,
       } : null,
     };
   }, [selectedNode, selectedTask]);
@@ -378,6 +380,8 @@ export default function Index() {
           onSelectNode={setSelectedNode}
           loading={betsLoading || ideasLoading}
           onRefresh={handleRefresh}
+          priorities={priorities}
+          onPriorityChange={updatePriorityList}
         />
       </div>
       <DragHandle onMouseDown={onLeftDrag} />
@@ -420,10 +424,10 @@ export default function Index() {
         </div>
       </div>
 
-      {/* Right: Daily Notes */}
+      {/* Right: Tasks / Daily Notes */}
       <DragHandle onMouseDown={onRightDrag} />
       <div className="flex flex-shrink-0 flex-col" style={{ width: rightWidth }}>
-        <DailyNotes
+        <RightPanel
           bets={bets}
           ideas={ideas}
           deliveryEpics={deliveryEpics}
