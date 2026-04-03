@@ -2,10 +2,9 @@ import { Router } from "express";
 import fs from "fs";
 import path from "path";
 
-const VAULT_PATH =
-  "/Users/trevorr/Library/CloudStorage/GoogleDrive-richardson.trev@gmail.com/My Drive/Trevor/Second Brain/Second Brain";
+const VAULT_PATH = "/Users/joshroberts/Workspace/Josh Vault";
 
-const DAILY_NOTES_DIR = path.join(VAULT_PATH, "Areas/Work/Daily Rundown");
+const DAILY_NOTES_DIR = path.join(VAULT_PATH, "Daily");
 
 const TEMPLATE_PATH = path.join(VAULT_PATH, "Templates/Daily Rundown.md");
 

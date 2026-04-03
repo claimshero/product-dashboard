@@ -18,9 +18,11 @@ A personal work dashboard that combines an AI chat assistant (Claude Agent SDK) 
 
 ### Obsidian vault integration
 
-The dashboard reads/writes directly to the user's Obsidian vault on Google Drive:
-- Vault path: `/Users/trevorr/Library/CloudStorage/GoogleDrive-richardson.trev@gmail.com/My Drive/Trevor/Second Brain/Second Brain`
-- Daily notes live in `Areas/Work/Daily Rundown/` as `YYYY-MM-DD.md` files
+The dashboard reads/writes directly to Josh's Obsidian vault:
+- Vault path: `/Users/joshroberts/Workspace/Josh Vault`
+- Daily notes live in `Daily/` as `YYYY-MM-DD.md` files
+- Product context lives in `Product/` (company-context, bets, operating model)
+- Claude instructions and project configs live in `Claude/`
 - Templates live in `Templates/` — always use the real template file, never hardcode fallbacks. If the template can't be read, throw an error.
 
 ## UI patterns

@@ -6,3 +6,71 @@ body {
   height: 100%;
   margin: 0;
 }
+
+.jira-description {
+  color: var(--mantine-color-gray-3);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.jira-description p {
+  margin: 0.5em 0;
+}
+
+.jira-description ul,
+.jira-description ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.jira-description li {
+  margin: 0.25em 0;
+}
+
+.jira-description h1,
+.jira-description h2,
+.jira-description h3,
+.jira-description h4 {
+  color: var(--mantine-color-gray-2);
+  margin: 1em 0 0.5em;
+}
+
+.jira-description code {
+  background: var(--mantine-color-dark-5);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+
+.jira-description pre {
+  background: var(--mantine-color-dark-6);
+  padding: 0.75em 1em;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.jira-description a {
+  color: var(--mantine-color-blue-5);
+  text-decoration: none;
+}
+
+.jira-description a:hover {
+  text-decoration: underline;
+}
+
+.jira-description table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+}
+
+.jira-description th,
+.jira-description td {
+  border: 1px solid var(--mantine-color-dark-4);
+  padding: 0.5em;
+  text-align: left;
+}
+
+.jira-description img {
+  max-width: 100%;
+}

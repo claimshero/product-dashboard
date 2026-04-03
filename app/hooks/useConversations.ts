@@ -6,7 +6,35 @@ function getChatUrl(path: string): string {
   return `${window.location.protocol}//${window.location.hostname}:4001${path}`;
 }
 
-export function useConversations() {
+export interface ChatContext {
+  selectedNode?: {
+    type: string;
+    name?: string;
+    slug?: string;
+    filePath?: string;
+    fileName?: string;
+    filename?: string;
+    date?: string;
+    key?: string;
+    summary?: string;
+    status?: string;
+    issueType?: string;
+    url?: string;
+  } | null;
+  selectedTask?: {
+    id: string;
+    text: string;
+    completed: boolean;
+    betSlug: string | null;
+    jiraKey: string | null;
+    clientSlug: string | null;
+    partnerSlug: string | null;
+    urgency: string | null;
+    category: string;
+  } | null;
+}
+
+export function useConversations(contextRef?: React.RefObject<ChatContext | null>) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<
     string | null
@@ -104,6 +132,7 @@ export function useConversations() {
           body: JSON.stringify({
             prompt,
             conversationId: activeConversationId ?? undefined,
+            context: contextRef?.current ?? undefined,
           }),
           signal: controller.signal,
         });
