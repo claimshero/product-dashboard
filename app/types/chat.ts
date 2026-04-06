@@ -1,6 +1,22 @@
 export interface Message {
   role: "user" | "assistant";
   content: string;
+  /** Rich content blocks — present on streaming assistant messages */
+  blocks?: MessageBlock[];
+  /** Final result stats — cost, tokens, duration */
+  result?: ResultStats;
+}
+
+export type MessageBlock =
+  | { type: "thinking"; content: string; done: boolean }
+  | { type: "text"; content: string }
+  | { type: "tool_use"; id: string; name: string; elapsed?: number; status: "running" | "done" | "error" };
+
+export interface ResultStats {
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  durationMs: number;
 }
 
 export interface ConversationSummary {
