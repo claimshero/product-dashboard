@@ -3,8 +3,10 @@ import { ChatInterface } from "~/components/ChatInterface";
 import { RightPanel } from "~/components/RightPanel";
 import { ItemDetails } from "~/components/ItemDetails";
 import { NavTree } from "~/components/NavTree";
+import { IntelNavTree } from "~/components/IntelNavTree";
 import { SettingsDrawer } from "~/components/SettingsDrawer";
 import { ContentView } from "~/components/ContentView";
+import { IntelligenceView } from "~/components/IntelligenceView";
 import { useBets } from "~/hooks/useBets";
 import { useDelivery, type SelectedItem } from "~/hooks/useDelivery";
 import { useIdeas } from "~/hooks/useIdeas";
@@ -13,9 +15,12 @@ import { useAllTasks } from "~/hooks/useTasks";
 import { useMeetings } from "~/hooks/useMeetings";
 import { useClientsPartners } from "~/hooks/useClientsPartners";
 import { usePriorities } from "~/hooks/usePriorities";
+import { useCompetitors, useBriefings, useIntelPartnerships, useMarketSignals } from "~/hooks/useIntel";
 import type { NavNode } from "~/types/navigation";
 import { navNodeToSelectedItem } from "~/types/navigation";
 import type { Task } from "~/types/tasks";
+
+export type ViewMode = "intelligence" | "discovery" | "delivery";
 
 // --- Layout constants ---
 
@@ -35,6 +40,7 @@ const STORAGE_KEY_LEFT_WIDTH = "dashboard:leftWidth";
 const STORAGE_KEY_RIGHT_WIDTH = "dashboard:rightWidth";
 const STORAGE_KEY_CHAT_HEIGHT = "dashboard:chatHeight";
 const STORAGE_KEY_CHAT_EXPANDED = "dashboard:chatExpanded";
+const STORAGE_KEY_VIEW_MODE = "dashboard:viewMode";
 
 // --- Drag resize hooks ---
 
@@ -173,6 +179,12 @@ export default function Index() {
   const { clients, partners, refresh: refreshClientsPartners } = useClientsPartners();
   const { priorities, updateList: updatePriorityList } = usePriorities();
 
+  // Intelligence hooks
+  const { competitors, refresh: refreshCompetitors } = useCompetitors();
+  const { briefings, refresh: refreshBriefings } = useBriefings();
+  const { partnerships: intelPartnerships, refresh: refreshIntelPartnerships } = useIntelPartnerships();
+  const { signals: marketSignals, refresh: refreshMarketSignals } = useMarketSignals();
+
   // Auto-refresh all data when chat streaming finishes (agent may have written files)
   const wasStreamingRef = useRef(false);
   useEffect(() => {
@@ -184,11 +196,15 @@ export default function Index() {
         refreshOpenTasks();
         refreshMeetings();
         refreshClientsPartners();
+        refreshCompetitors();
+        refreshBriefings();
+        refreshIntelPartnerships();
+        refreshMarketSignals();
       }, 500);
       return () => clearTimeout(timer);
     }
     wasStreamingRef.current = isStreaming;
-  }, [isStreaming, refreshBets, refreshIdeas, refreshOpenTasks, refreshMeetings, refreshClientsPartners]);
+  }, [isStreaming, refreshBets, refreshIdeas, refreshOpenTasks, refreshMeetings, refreshClientsPartners, refreshCompetitors, refreshBriefings, refreshIntelPartnerships, refreshMarketSignals]);
 
   // Layout state
   const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT_WIDTH);
@@ -196,6 +212,7 @@ export default function Index() {
   const [chatHeight, setChatHeight] = useState(DEFAULT_CHAT_HEIGHT);
   const [chatExpanded, setChatExpanded] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("discovery");
 
   // Selection state
   const [selectedNode, setSelectedNode] = useState<NavNode | null>(null);
@@ -239,6 +256,10 @@ export default function Index() {
       if (savedRight !== null) setRightWidth(Number(savedRight));
       if (savedChat !== null) setChatHeight(Number(savedChat));
       if (savedChatExpanded !== null) setChatExpanded(savedChatExpanded === "true");
+      const savedViewMode = localStorage.getItem(STORAGE_KEY_VIEW_MODE);
+      if (savedViewMode === "intelligence" || savedViewMode === "discovery" || savedViewMode === "delivery") {
+        setViewMode(savedViewMode);
+      }
     } catch {}
   }, []);
 
@@ -259,6 +280,10 @@ export default function Index() {
     try { localStorage.setItem(STORAGE_KEY_CHAT_EXPANDED, String(chatExpanded)); } catch {}
   }, [chatExpanded]);
 
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY_VIEW_MODE, viewMode); } catch {}
+  }, [viewMode]);
+
   // Drag handlers
   const onLeftDrag = useDragResize("left", MIN_LEFT_WIDTH, MAX_LEFT_WIDTH, leftWidth, setLeftWidth);
   const onRightDrag = useDragResize("right", MIN_RIGHT_WIDTH, MAX_RIGHT_WIDTH, rightWidth, setRightWidth);
@@ -275,6 +300,25 @@ export default function Index() {
     refreshOpenTasks();
     refreshMeetings();
     refreshClientsPartners();
+    refreshCompetitors();
+    refreshBriefings();
+    refreshIntelPartnerships();
+    refreshMarketSignals();
+  };
+
+  const handleIntelRefresh = () => {
+    refreshCompetitors();
+    refreshBriefings();
+    refreshIntelPartnerships();
+    refreshMarketSignals();
+  };
+
+  // Clear selection when switching view modes
+  const handleViewModeChange = (mode: string) => {
+    setViewMode(mode as ViewMode);
+    setSelectedNode(null);
+    setSelectedItem(null);
+    setSelectedTask(null);
   };
 
   const handleTaskClick = (task: Task) => {
@@ -367,33 +411,60 @@ export default function Index() {
 
   return (
     <div className="flex h-screen bg-[var(--mantine-color-dark-8)]">
-      {/* Left: NavTree */}
+      {/* Left: Mode selector + NavTree */}
       <div className="flex flex-shrink-0 flex-col" style={{ width: leftWidth }}>
-        <NavTree
-          bets={bets}
-          ideas={ideas}
-          deliveryEpics={deliveryEpics}
-          meetings={meetings}
-          clients={clients}
-          partners={partners}
-          selectedNode={selectedNode}
-          onSelectNode={setSelectedNode}
-          loading={betsLoading || ideasLoading}
-          onRefresh={handleRefresh}
-          priorities={priorities}
-          onPriorityChange={updatePriorityList}
+        <ViewModeSwitcher
+          viewMode={viewMode}
+          onChange={handleViewModeChange}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
+        {viewMode === "intelligence" ? (
+          <IntelNavTree
+            competitors={competitors}
+            briefings={briefings}
+            partnerships={intelPartnerships}
+            marketSignals={marketSignals}
+            selectedNode={selectedNode}
+            onSelectNode={setSelectedNode}
+            loading={false}
+            onRefresh={handleIntelRefresh}
+          />
+        ) : (
+          <NavTree
+            bets={bets}
+            ideas={ideas}
+            deliveryEpics={deliveryEpics}
+            meetings={meetings}
+            clients={clients}
+            partners={partners}
+            selectedNode={selectedNode}
+            onSelectNode={setSelectedNode}
+            loading={betsLoading || ideasLoading}
+            onRefresh={handleRefresh}
+            priorities={priorities}
+            onPriorityChange={updatePriorityList}
+          />
+        )}
       </div>
       <DragHandle onMouseDown={onLeftDrag} />
 
       {/* Center: Content + Chat */}
       <div ref={centerRef} className="flex flex-1 flex-col overflow-hidden">
         {/* Content area (flex-1) */}
-        <ContentView
-          selectedNode={selectedNode}
-          selectedItem={selectedItem}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
+        <div className="flex-1 overflow-hidden">
+          {viewMode === "intelligence" ? (
+            <IntelligenceView
+              selectedNode={selectedNode}
+              latestBriefingDate={briefings.length > 0 ? briefings[0].date : null}
+            />
+          ) : (
+            <ContentView
+              selectedNode={selectedNode}
+              selectedItem={selectedItem}
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
+          )}
+        </div>
 
         {/* Chat area */}
         <HorizontalDragHandle onMouseDown={onChatDrag} />
@@ -441,6 +512,81 @@ export default function Index() {
       </div>
 
       <SettingsDrawer opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    </div>
+  );
+}
+
+/** View mode switcher — prominent selector at top of left panel */
+function ViewModeSwitcher({
+  viewMode,
+  onChange,
+  onOpenSettings,
+}: {
+  viewMode: ViewMode;
+  onChange: (mode: string) => void;
+  onOpenSettings: () => void;
+}) {
+  const modes: { value: ViewMode; label: string; color: string }[] = [
+    { value: "intelligence", label: "Intelligence", color: "var(--mantine-color-violet-6)" },
+    { value: "discovery", label: "Discovery", color: "var(--mantine-color-blue-6)" },
+    { value: "delivery", label: "Delivery", color: "var(--mantine-color-green-6)" },
+  ];
+
+  return (
+    <div
+      className="flex flex-col gap-1 border-b px-2 py-2"
+      style={{
+        borderColor: "var(--mantine-color-dark-4)",
+        backgroundColor: "var(--mantine-color-dark-8)",
+      }}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--mantine-color-dark-3)" }}>
+          Mode
+        </span>
+        <button
+          onClick={onOpenSettings}
+          className="flex items-center justify-center border-none bg-transparent cursor-pointer p-0.5"
+          style={{ color: "var(--mantine-color-dark-3)" }}
+          title="Settings"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>
+      </div>
+      <div className="flex gap-1">
+        {modes.map((mode) => {
+          const active = viewMode === mode.value;
+          return (
+            <button
+              key={mode.value}
+              onClick={() => onChange(mode.value)}
+              className="flex-1 rounded px-1 py-1.5 text-xs font-medium border-none cursor-pointer transition-all"
+              style={{
+                backgroundColor: active ? mode.color : "var(--mantine-color-dark-6)",
+                color: active ? "white" : "var(--mantine-color-dark-1)",
+                opacity: active ? 1 : 0.7,
+              }}
+              onMouseEnter={(e) => {
+                if (!active) {
+                  e.currentTarget.style.opacity = "1";
+                  e.currentTarget.style.backgroundColor = "var(--mantine-color-dark-5)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!active) {
+                  e.currentTarget.style.opacity = "0.7";
+                  e.currentTarget.style.backgroundColor = "var(--mantine-color-dark-6)";
+                }
+              }}
+            >
+              {mode.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

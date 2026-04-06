@@ -71,6 +71,31 @@ function issueTypeEmoji(type: string): string {
   }
 }
 
+type StatusFilter = "active" | "recent" | "all";
+
+const DONE_CATEGORIES = new Set(["done"]);
+
+function isDone(statusCategory: string): boolean {
+  return DONE_CATEGORIES.has(statusCategory);
+}
+
+function isRecentlyDone(statusCategory: string, updated?: string): boolean {
+  if (!isDone(statusCategory) || !updated) return false;
+  const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
+  return new Date(updated).getTime() >= twoWeeksAgo;
+}
+
+function passesStatusFilter(
+  statusCategory: string,
+  filter: StatusFilter,
+  updated?: string
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "active") return !isDone(statusCategory);
+  // "recent" = active + recently done
+  return !isDone(statusCategory) || isRecentlyDone(statusCategory, updated);
+}
+
 function ChevronIcon({ expanded }: { expanded: boolean }) {
   return (
     <svg
@@ -238,6 +263,7 @@ export function NavTree({
 }: NavTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["section:bets", "section:ideas"]));
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -416,14 +442,21 @@ export function NavTree({
     priorities.bets
   );
 
-  // Search filter
+  // Status + search filters
+  const filterIdea = (i: { statusCategory: string; updated?: string }) =>
+    passesStatusFilter(i.statusCategory, statusFilter, i.updated);
+  const filterEpic = (e: DeliveryEpic) =>
+    passesStatusFilter(e.statusCategory, statusFilter);
+  const filterStory = (s: { statusCategory: string; updated: string }) =>
+    passesStatusFilter(s.statusCategory, statusFilter, s.updated);
+
   const q = searchQuery.toLowerCase().trim();
   const matchesSearch = (text: string) => !q || text.toLowerCase().includes(q);
 
   const filteredBets = q ? sortedBets.filter((b) => matchesSearch(b.name) || matchesSearch(b.status) || b.ideaKeys.some((k) => matchesSearch(k))) : sortedBets;
-  const filteredDeliveryIdeas = q ? sortedDeliveryIdeas.filter((i) => matchesSearch(i.summary) || matchesSearch(i.key)) : sortedDeliveryIdeas;
-  const filteredIdeasWithoutBets = q ? sortedIdeasWithoutBets.filter((i) => matchesSearch(i.summary) || matchesSearch(i.key)) : sortedIdeasWithoutBets;
-  const filteredOrphanEpics = q ? sortedOrphanEpics.filter((e) => matchesSearch(e.summary) || matchesSearch(e.key)) : sortedOrphanEpics;
+  const filteredDeliveryIdeas = sortedDeliveryIdeas.filter((i) => filterIdea(i) && (!q || matchesSearch(i.summary) || matchesSearch(i.key)));
+  const filteredIdeasWithoutBets = sortedIdeasWithoutBets.filter((i) => filterIdea(i) && (!q || matchesSearch(i.summary) || matchesSearch(i.key)));
+  const filteredOrphanEpics = sortedOrphanEpics.filter((e) => filterEpic(e) && (!q || matchesSearch(e.summary) || matchesSearch(e.key)));
   const filteredMeetings = q ? meetings.filter((m) => matchesSearch(m.name) || matchesSearch(m.date)) : meetings;
   const filteredClients = q ? clients.filter((c) => matchesSearch(c.name) || matchesSearch(c.relationship) || matchesSearch(c.contact)) : clients;
   const filteredPartners = q ? partners.filter((p) => matchesSearch(p.name) || matchesSearch(p.relationship) || matchesSearch(p.contact)) : partners;
@@ -493,6 +526,26 @@ export function NavTree({
             </ActionIcon>
           </Tooltip>
         )}
+      </div>
+
+      {/* Status filter */}
+      <div
+        className="flex items-center gap-1 border-b px-2 py-1"
+        style={{ borderColor: "var(--mantine-color-dark-4)" }}
+      >
+        {(["active", "recent", "all"] as StatusFilter[]).map((f) => (
+          <button
+            key={f}
+            onClick={() => setStatusFilter(f)}
+            className="rounded border-none px-2 py-0.5 text-[11px] cursor-pointer transition-colors"
+            style={{
+              backgroundColor: statusFilter === f ? "var(--mantine-color-dark-4)" : "transparent",
+              color: statusFilter === f ? "var(--mantine-color-white)" : "var(--mantine-color-dark-2)",
+            }}
+          >
+            {f === "active" ? "Active" : f === "recent" ? "Recent" : "All"}
+          </button>
+        ))}
       </div>
 
       {/* Tree */}
@@ -607,8 +660,8 @@ export function NavTree({
                           )}
 
                           {/* Linked Ideas */}
-                          {betLinkedIdeas(bet.ideaKeys).map((idea) => {
-                            const ideaEpics = epicsForIdea(idea.key);
+                          {betLinkedIdeas(bet.ideaKeys).filter(filterIdea).map((idea) => {
+                            const ideaEpics = epicsForIdea(idea.key).filter(filterEpic);
                             const ideaExpanded = expanded.has(`idea:${idea.key}`);
                             const ideaNode: NavNode = {
                               type: "jira-idea",
@@ -671,7 +724,7 @@ export function NavTree({
                                         </TreeRow>
 
                                         {epicExp &&
-                                          epic.children.map((story) => {
+                                          epic.children.filter(filterStory).map((story) => {
                                             const storyNode: NavNode = {
                                               type: "jira-story",
                                               key: story.key,
@@ -721,7 +774,7 @@ export function NavTree({
 
               {expanded.has("section:delivery-ideas") &&
                 filteredDeliveryIdeas.map((idea) => {
-                  const ideaEpics = epicsForIdea(idea.key);
+                  const ideaEpics = epicsForIdea(idea.key).filter(filterEpic);
                   const ideaExpanded = expanded.has(`idea:${idea.key}`);
                   const ideaNode: NavNode = {
                     type: "jira-idea",
@@ -784,7 +837,7 @@ export function NavTree({
                               </TreeRow>
 
                               {epicExpanded &&
-                                epic.children.map((story) => {
+                                epic.children.filter(filterStory).map((story) => {
                                   const storyNode: NavNode = {
                                     type: "jira-story",
                                     key: story.key,
@@ -830,7 +883,7 @@ export function NavTree({
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleIdeasWithoutBetsDragEnd}>
                   <SortableContext items={filteredIdeasWithoutBets.map((i) => i.key)} strategy={verticalListSortingStrategy}>
                     {filteredIdeasWithoutBets.map((idea) => {
-                      const ideaEpics = epicsForIdea(idea.key);
+                      const ideaEpics = epicsForIdea(idea.key).filter(filterEpic);
                       const ideaExpanded = expanded.has(`idea:${idea.key}`);
                       const ideaNode: NavNode = {
                         type: "jira-idea",
@@ -894,7 +947,7 @@ export function NavTree({
                                   </TreeRow>
 
                                   {epicExp &&
-                                    epic.children.map((story) => {
+                                    epic.children.filter(filterStory).map((story) => {
                                       const storyNode: NavNode = {
                                         type: "jira-story",
                                         key: story.key,
@@ -975,7 +1028,7 @@ export function NavTree({
                           </TreeRow>
 
                           {epicExp &&
-                            epic.children.map((story) => {
+                            epic.children.filter(filterStory).map((story) => {
                               const storyNode: NavNode = {
                                 type: "jira-story",
                                 key: story.key,
