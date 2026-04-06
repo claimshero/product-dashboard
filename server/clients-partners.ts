@@ -1,10 +1,7 @@
 import { Router } from "express";
 import fs from "fs";
 import path from "path";
-
-const VAULT_PATH = "/Users/joshroberts/Workspace/Josh Vault";
-const CLIENTS_DIR = path.join(VAULT_PATH, "Product/Clients");
-const PARTNERS_DIR = path.join(VAULT_PATH, "Product/Partners");
+import { CLIENTS_DIR, PARTNERS_DIR } from "./config.js";
 
 export interface ClientPartnerSummary {
   slug: string;

@@ -1,12 +1,7 @@
 import { Router } from "express";
 import fs from "fs";
 import path from "path";
-
-const VAULT_PATH = "/Users/joshroberts/Workspace/Josh Vault";
-
-const DAILY_NOTES_DIR = path.join(VAULT_PATH, "Daily");
-
-const TEMPLATE_PATH = path.join(VAULT_PATH, "Templates/Daily Rundown.md");
+import { DAILY_NOTES_DIR, TEMPLATE_PATH } from "./config.js";
 
 function loadTemplate(): string {
   return fs.readFileSync(TEMPLATE_PATH, "utf-8");

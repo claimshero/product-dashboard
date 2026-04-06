@@ -21,6 +21,7 @@ export interface LinkedIdea {
   status: string;
   statusCategory: string;
   url: string;
+  updated?: string;
 }
 
 export interface DeliveryEpic {

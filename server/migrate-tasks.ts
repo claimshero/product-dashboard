@@ -8,10 +8,9 @@
 import fs from "fs";
 import path from "path";
 import { resolveCategory, ensureTaskFile } from "./task-files.js";
+import { config, DAILY_NOTES_DIR, TASKS_DIR } from "./config.js";
 
-const VAULT_PATH = "/Users/joshroberts/Workspace/Josh Vault";
-const DAILY_DIR = path.join(VAULT_PATH, "Daily");
-const TASKS_DIR = path.join(VAULT_PATH, "Tasks");
+const DAILY_DIR = DAILY_NOTES_DIR;
 
 const TASK_RE = /^- \[([ x])\] (.+)$/;
 const BET_LINK_RE = /\[\[([a-z][a-z0-9-]*[a-z0-9])\]\]/;
@@ -261,7 +260,7 @@ if (execute) {
   console.log(`Updated ${dailyUpdates.length} daily notes with activity logs`);
 
   // 6. Update the daily note template
-  const templatePath = path.join(VAULT_PATH, "Templates/Daily Rundown.md");
+  const templatePath = path.join(config.vaultPath, config.dailyNoteTemplate);
   if (fs.existsSync(templatePath)) {
     const templateContent = fs.readFileSync(templatePath, "utf-8");
     const updatedTemplate = templateContent.replace(

@@ -1,9 +1,7 @@
 import { Router } from "express";
 import fs from "fs";
 import path from "path";
-
-const VAULT_PATH = "/Users/joshroberts/Workspace/Josh Vault";
-const BETS_DIR = path.join(VAULT_PATH, "Product/Bets");
+import { BETS_DIR } from "./config.js";
 
 export interface BetSummary {
   slug: string;

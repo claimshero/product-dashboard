@@ -17,10 +17,7 @@ import {
   cleanTaskText,
 } from "./task-files.js";
 import { appendCreatedEntry, appendCompletedEntry, parseActivityLog } from "./daily-activity-log.js";
-
-const VAULT_PATH = "/Users/joshroberts/Workspace/Josh Vault";
-const DAILY_NOTES_DIR = path.join(VAULT_PATH, "Daily");
-const MEETINGS_DIR = path.join(VAULT_PATH, "Daily/meetings");
+import { DAILY_NOTES_DIR, MEETINGS_DIR } from "./config.js";
 
 function formatDate(date: string): string {
   return date.replace(/[^0-9-]/g, "").slice(0, 10);

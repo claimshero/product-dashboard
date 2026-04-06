@@ -1,9 +1,7 @@
 import fs from "fs";
 import path from "path";
 import type { Task, TaskUrgency } from "../app/types/tasks.js";
-
-const VAULT_PATH = "/Users/joshroberts/Workspace/Josh Vault";
-const TASKS_DIR = path.join(VAULT_PATH, "Tasks");
+import { TASKS_DIR } from "./config.js";
 
 const TASK_RE = /^- \[([ x])\] (.+)$/;
 const BET_LINK_RE = /\[\[([a-z][a-z0-9-]*[a-z0-9])\]\]/;

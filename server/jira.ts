@@ -1,15 +1,7 @@
 import { Router } from "express";
-import fs from "fs";
-import path from "path";
-import os from "os";
+import { config } from "./config.js";
 
-const JIRA_BASE_URL = "https://claimable.atlassian.net";
-
-const JIRA_EMAIL = "josh.roberts@getclaimable.com";
-const TOKEN_FILE_PATH = path.join(
-  import.meta.dirname,
-  "../.tokens/AtlassianToken"
-);
+const JIRA_BASE_URL = config.jiraBaseUrl;
 
 function getAuthHeader(): string {
   const bearer = process.env.JIRA_BEARER_TOKEN;
@@ -17,21 +9,12 @@ function getAuthHeader(): string {
     return `Bearer ${bearer}`;
   }
 
-  let token: string | undefined;
-  try {
-    token = fs.readFileSync(TOKEN_FILE_PATH, "utf-8").trim();
-  } catch {
-    // Fall back to env vars
-  }
-
-  const email = process.env.JIRA_EMAIL ?? JIRA_EMAIL;
-  token = token ?? process.env.JIRA_API_TOKEN;
-
-  if (email && token) {
-    return `Basic ${Buffer.from(`${email}:${token}`).toString("base64")}`;
+  const { jiraEmail, jiraApiToken } = config;
+  if (jiraEmail && jiraApiToken) {
+    return `Basic ${Buffer.from(`${jiraEmail}:${jiraApiToken}`).toString("base64")}`;
   }
   throw new Error(
-    "Could not read Jira token from ~/Documents/TOKENS/AtlassianToken or JIRA_API_TOKEN env var"
+    "JIRA_EMAIL and JIRA_API_TOKEN must be set in .env. See .env.example"
   );
 }
 
@@ -67,6 +50,7 @@ export interface LinkedIdea {
   status: string;
   statusCategory: string;
   url: string;
+  updated?: string;
 }
 
 export interface DeliveryEpic {
@@ -124,6 +108,7 @@ function extractLinkedIdea(issuelinks: any[]): LinkedIdea | null {
         status: candidate.fields.status?.name ?? "Unknown",
         statusCategory: candidate.fields.status?.statusCategory?.key ?? "undefined",
         url: `${JIRA_BASE_URL}/browse/${candidate.key}`,
+        updated: candidate.fields.updated,
       };
     }
   }
@@ -217,7 +202,7 @@ jiraRouter.get("/api/jira/ideas", async (_req, res) => {
   try {
     const rawIdeas = await searchIssues(
       "project = DB AND issuetype = Idea ORDER BY updated DESC",
-      "summary,status"
+      "summary,status,updated"
     );
 
     const ideas = rawIdeas.map((raw) => ({
@@ -226,6 +211,7 @@ jiraRouter.get("/api/jira/ideas", async (_req, res) => {
       status: raw.fields.status?.name ?? "Unknown",
       statusCategory: raw.fields.status?.statusCategory?.key ?? "undefined",
       url: `${JIRA_BASE_URL}/browse/${raw.key}`,
+      updated: raw.fields.updated,
     }));
 
     res.json({ ideas });
