@@ -8,10 +8,14 @@
     "dev:web": "node --watch-path=server --import tsx/esm server/app.ts",
     "dev:chat": "node --watch-path=server --import tsx/esm server/chat.ts",
     "build": "react-router build",
-    "start": "NODE_ENV=production node build/server/app.js"
+    "start": "NODE_ENV=production node build/server/app.js",
+    "migrate:tasks": "node --import tsx/esm server/migrate-tasks.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@mantine/core": "^7.17.0",
     "@mantine/hooks": "^7.17.0",
     "@react-router/express": "^7.5.0",

@@ -1,21 +1,87 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ConversationSummary, Message } from "~/types/chat";
+import type { ConversationSummary, Message, MessageBlock, ResultStats } from "~/types/chat";
 
 function getChatUrl(path: string): string {
   if (typeof window === "undefined") return path;
   return `${window.location.protocol}//${window.location.hostname}:4001${path}`;
 }
 
-export function useConversations() {
+export interface ChatContext {
+  selectedNode?: {
+    type: string;
+    name?: string;
+    slug?: string;
+    filePath?: string;
+    fileName?: string;
+    filename?: string;
+    date?: string;
+    key?: string;
+    summary?: string;
+    status?: string;
+    issueType?: string;
+    url?: string;
+  } | null;
+  selectedTask?: {
+    id: string;
+    text: string;
+    completed: boolean;
+    betSlug: string | null;
+    jiraKey: string | null;
+    clientSlug: string | null;
+    partnerSlug: string | null;
+    urgency: string | null;
+    category: string;
+  } | null;
+}
+
+/** Mutable state accumulated during streaming — avoids React re-renders for every SSE event */
+interface StreamAccumulator {
+  textContent: string;
+  blocks: MessageBlock[];
+  activeTools: Map<string, { name: string; elapsed: number }>;
+  isThinking: boolean;
+  thinkingText: string;
+  result: ResultStats | null;
+}
+
+function createAccumulator(): StreamAccumulator {
+  return {
+    textContent: "",
+    blocks: [],
+    activeTools: new Map(),
+    isThinking: false,
+    thinkingText: "",
+    result: null,
+  };
+}
+
+export function useConversations(contextRef?: React.RefObject<ChatContext | null>) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<
     string | null
   >(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [currentStreamedText, setCurrentStreamedText] = useState("");
+  const [streamMessage, setStreamMessage] = useState<Message | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const initialLoadDone = useRef(false);
+  const accRef = useRef<StreamAccumulator>(createAccumulator());
+  const rafRef = useRef<number | null>(null);
+
+  // Schedule a React state update at most once per animation frame
+  const scheduleUpdate = useCallback(() => {
+    if (rafRef.current !== null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      const acc = accRef.current;
+      setStreamMessage({
+        role: "assistant",
+        content: acc.textContent,
+        blocks: [...acc.blocks],
+        result: acc.result ?? undefined,
+      });
+    });
+  }, []);
 
   const fetchConversations = useCallback(async () => {
     try {
@@ -55,7 +121,7 @@ export function useConversations() {
         const conv = (await res.json()) as ConversationSummary & { messages?: Message[] };
         setActiveConversationId(conv.id);
         setMessages([]);
-        setCurrentStreamedText("");
+        setStreamMessage(null);
         await fetchConversations();
       }
     } catch (err) {
@@ -71,7 +137,6 @@ export function useConversations() {
         });
         const updated = await fetchConversations();
         if (activeConversationId === id) {
-          // Select the most recent remaining conversation, or clear
           if (updated.length > 0) {
             await selectConversation(updated[0].id);
           } else {
@@ -92,7 +157,8 @@ export function useConversations() {
       // Optimistically add the user message to the display
       setMessages((prev) => [...prev, { role: "user", content: prompt }]);
       setIsStreaming(true);
-      setCurrentStreamedText("");
+      setStreamMessage(null);
+      accRef.current = createAccumulator();
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -104,6 +170,7 @@ export function useConversations() {
           body: JSON.stringify({
             prompt,
             conversationId: activeConversationId ?? undefined,
+            context: contextRef?.current ?? undefined,
           }),
           signal: controller.signal,
         });
@@ -114,8 +181,8 @@ export function useConversations() {
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let accumulated = "";
         let buffer = "";
+        const acc = accRef.current;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -133,51 +200,131 @@ export function useConversations() {
               eventType = line.slice(7);
             } else if (line.startsWith("data: ")) {
               const data = line.slice(6);
-              if (eventType === "meta") {
-                try {
-                  const parsed = JSON.parse(data) as {
-                    conversationId: string;
-                    title: string;
-                  };
-                  setActiveConversationId(parsed.conversationId);
-                } catch {
-                  // Skip malformed JSON
+              try {
+                const parsed = JSON.parse(data);
+                switch (eventType) {
+                  case "meta": {
+                    setActiveConversationId(parsed.conversationId);
+                    break;
+                  }
+                  case "thinking_start": {
+                    acc.isThinking = true;
+                    acc.thinkingText = "";
+                    acc.blocks.push({ type: "thinking", content: "", done: false });
+                    scheduleUpdate();
+                    break;
+                  }
+                  case "thinking": {
+                    acc.thinkingText += parsed.text;
+                    // Update the last thinking block
+                    for (let j = acc.blocks.length - 1; j >= 0; j--) {
+                      if (acc.blocks[j].type === "thinking") {
+                        (acc.blocks[j] as Extract<MessageBlock, { type: "thinking" }>).content = acc.thinkingText;
+                        break;
+                      }
+                    }
+                    scheduleUpdate();
+                    break;
+                  }
+                  case "thinking_done": {
+                    acc.isThinking = false;
+                    for (let j = acc.blocks.length - 1; j >= 0; j--) {
+                      if (acc.blocks[j].type === "thinking") {
+                        (acc.blocks[j] as Extract<MessageBlock, { type: "thinking" }>).done = true;
+                        break;
+                      }
+                    }
+                    scheduleUpdate();
+                    break;
+                  }
+                  case "tool_start": {
+                    acc.activeTools.set(parsed.id, { name: parsed.name, elapsed: 0 });
+                    acc.blocks.push({
+                      type: "tool_use",
+                      id: parsed.id,
+                      name: parsed.name,
+                      status: "running",
+                    });
+                    scheduleUpdate();
+                    break;
+                  }
+                  case "tool_progress": {
+                    const tool = acc.activeTools.get(parsed.id);
+                    if (tool) {
+                      tool.elapsed = parsed.elapsed;
+                    }
+                    const progressBlock = acc.blocks.find(
+                      (b) => b.type === "tool_use" && b.id === parsed.id
+                    );
+                    if (progressBlock && progressBlock.type === "tool_use") {
+                      progressBlock.elapsed = parsed.elapsed;
+                    }
+                    scheduleUpdate();
+                    break;
+                  }
+                  case "tool_done": {
+                    acc.activeTools.delete(parsed.id);
+                    const doneToolBlock = acc.blocks.find(
+                      (b) => b.type === "tool_use" && b.id === parsed.id
+                    );
+                    if (doneToolBlock && doneToolBlock.type === "tool_use") {
+                      doneToolBlock.status = "done";
+                    }
+                    scheduleUpdate();
+                    break;
+                  }
+                  case "delta": {
+                    acc.textContent += parsed.text;
+                    // Find or create the last text block
+                    const lastBlock = acc.blocks[acc.blocks.length - 1];
+                    if (lastBlock && lastBlock.type === "text") {
+                      lastBlock.content = acc.textContent;
+                    } else {
+                      acc.blocks.push({ type: "text", content: acc.textContent });
+                    }
+                    scheduleUpdate();
+                    break;
+                  }
+                  case "result": {
+                    acc.result = {
+                      costUsd: parsed.costUsd,
+                      inputTokens: parsed.inputTokens,
+                      outputTokens: parsed.outputTokens,
+                      durationMs: parsed.durationMs,
+                    };
+                    scheduleUpdate();
+                    break;
+                  }
+                  case "error": {
+                    acc.textContent += `\n[Error: ${parsed.error}]`;
+                    const errBlock = acc.blocks[acc.blocks.length - 1];
+                    if (errBlock && errBlock.type === "text") {
+                      errBlock.content = acc.textContent;
+                    } else {
+                      acc.blocks.push({ type: "text", content: acc.textContent });
+                    }
+                    scheduleUpdate();
+                    break;
+                  }
                 }
-              } else if (eventType === "delta") {
-                try {
-                  const parsed = JSON.parse(data) as { text: string };
-                  accumulated += parsed.text;
-                  setCurrentStreamedText(accumulated);
-                } catch {
-                  // Skip malformed JSON
-                }
-              } else if (eventType === "error") {
-                try {
-                  const parsed = JSON.parse(data) as { error: string };
-                  accumulated += `\n[Error: ${parsed.error}]`;
-                  setCurrentStreamedText(accumulated);
-                } catch {
-                  // Skip malformed JSON
-                }
+              } catch {
+                // Skip malformed JSON
               }
               eventType = "";
             }
           }
         }
 
-        // Move accumulated text into messages
-        if (accumulated) {
+        // Move accumulated text into persisted messages
+        if (acc.textContent) {
           setMessages((prev) => [
             ...prev,
-            { role: "assistant", content: accumulated },
+            { role: "assistant", content: acc.textContent },
           ]);
         }
 
-        // Refresh the conversation list (new conversation may have been created,
-        // or updatedAt may have changed)
+        // Refresh the conversation list
         await fetchConversations();
-
-        // Re-fetch after a delay to pick up auto-generated title
         setTimeout(() => fetchConversations(), 3000);
       } catch (err) {
         if ((err as Error).name !== "AbortError") {
@@ -189,12 +336,16 @@ export function useConversations() {
           ]);
         }
       } finally {
-        setCurrentStreamedText("");
+        setStreamMessage(null);
         setIsStreaming(false);
         abortRef.current = null;
+        if (rafRef.current !== null) {
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = null;
+        }
       }
     },
-    [isStreaming, activeConversationId, fetchConversations]
+    [isStreaming, activeConversationId, fetchConversations, scheduleUpdate]
   );
 
   // Initial load: fetch conversations and auto-select the most recent
@@ -212,9 +363,7 @@ export function useConversations() {
   // Build display messages including the in-progress streaming message
   const displayMessages: Message[] = [
     ...messages,
-    ...(isStreaming && currentStreamedText
-      ? [{ role: "assistant" as const, content: currentStreamedText }]
-      : []),
+    ...(streamMessage ? [streamMessage] : []),
   ];
 
   const stopStreaming = useCallback(() => {

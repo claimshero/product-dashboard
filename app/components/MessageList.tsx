@@ -14,10 +14,13 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const isAtBottom = useRef(true);
 
-  // Check if the last message is already a streaming assistant message
+  // Check if the last message has any content (text or blocks)
   const lastMsg = messages[messages.length - 1];
-  const hasStreamingText = lastMsg?.role === "assistant" && isStreaming;
-  const showThinking = isStreaming && !hasStreamingText;
+  const hasStreamingContent =
+    lastMsg?.role === "assistant" &&
+    isStreaming &&
+    (lastMsg.content || (lastMsg.blocks && lastMsg.blocks.length > 0));
+  const showWaiting = isStreaming && !hasStreamingContent;
 
   // Track whether user is scrolled to the bottom via IntersectionObserver
   useEffect(() => {
@@ -40,7 +43,7 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
     if (viewportRef.current && isAtBottom.current) {
       viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
     }
-  }, [messages, showThinking]);
+  }, [messages, showWaiting]);
 
   if (messages.length === 0 && !isStreaming) {
     return (
@@ -54,9 +57,13 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
     <ScrollArea h="100%" viewportRef={viewportRef}>
       <div className="flex flex-col gap-4 p-4">
         {messages.map((msg, i) => (
-          <MessageBubble key={i} message={msg} />
+          <MessageBubble
+            key={i}
+            message={msg}
+            isStreaming={isStreaming && i === messages.length - 1}
+          />
         ))}
-        {showThinking && (
+        {showWaiting && (
           <div className="flex justify-start">
             <Paper shadow="sm" radius="md" p="sm" bg="dark.6">
               <div className="flex items-center gap-2">

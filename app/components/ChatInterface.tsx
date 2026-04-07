@@ -88,9 +88,12 @@ export function ChatInterface({
         </Tooltip>
 
         {onClose && (
-          <Tooltip label="Close chat">
+          <Tooltip label="Collapse chat">
             <ActionIcon variant="subtle" color="gray" size="sm" onClick={onClose}>
-              <span style={{ fontSize: 16 }}>&times;</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="7 13 12 18 17 13" />
+                <polyline points="7 6 12 11 17 6" />
+              </svg>
             </ActionIcon>
           </Tooltip>
         )}

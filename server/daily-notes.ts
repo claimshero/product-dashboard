@@ -1,13 +1,7 @@
 import { Router } from "express";
 import fs from "fs";
 import path from "path";
-
-const VAULT_PATH =
-  "/Users/trevorr/Library/CloudStorage/GoogleDrive-richardson.trev@gmail.com/My Drive/Trevor/Second Brain/Second Brain";
-
-const DAILY_NOTES_DIR = path.join(VAULT_PATH, "Areas/Work/Daily Rundown");
-
-const TEMPLATE_PATH = path.join(VAULT_PATH, "Templates/Daily Rundown.md");
+import { DAILY_NOTES_DIR, TEMPLATE_PATH } from "./config.js";
 
 function loadTemplate(): string {
   return fs.readFileSync(TEMPLATE_PATH, "utf-8");

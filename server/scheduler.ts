@@ -1,7 +1,10 @@
 import * as crypto from "node:crypto";
+import os from "node:os";
+import path from "node:path";
 import cron from "node-cron";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { buildTrackedInterestsPromptSection } from "./tracked-interests.js";
+import { OBSIDIAN_VAULT_PATH, APP_SUPPORT_DIR } from "./prompts.js";
 import {
   loadTaskDefinitions,
   getTaskDefinition,
@@ -98,6 +101,7 @@ async function executeTask(task: ScheduledTaskDefinition): Promise<TaskExecution
       options: {
         permissionMode: "bypassPermissions",
         includePartialMessages: true,
+        additionalDirectories: [OBSIDIAN_VAULT_PATH, APP_SUPPORT_DIR, path.join(os.homedir(), ".claude/agents")],
         mcpServers: globalMcpServers,
         systemPrompt,
       },

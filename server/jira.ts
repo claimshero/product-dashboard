@@ -1,33 +1,25 @@
 import { Router } from "express";
-import fs from "fs";
-import path from "path";
-import os from "os";
+import { config } from "./config.js";
 
-const JIRA_BASE_URL = "https://claimable.atlassian.net";
-const CONFIG_DIR = path.join(
-  os.homedir(),
-  "Library/Application Support/work-dashboard"
-);
-const TRACKED_EPICS_PATH = path.join(CONFIG_DIR, "tracked-epics.json");
+const JIRA_BASE_URL = config.jiraBaseUrl;
 
 function getAuthHeader(): string {
-  // Support both Bearer tokens (OAuth) and API tokens (Basic Auth)
   const bearer = process.env.JIRA_BEARER_TOKEN;
   if (bearer) {
     return `Bearer ${bearer}`;
   }
-  const email = process.env.JIRA_EMAIL;
-  const token = process.env.JIRA_API_TOKEN;
-  if (email && token) {
-    return `Basic ${Buffer.from(`${email}:${token}`).toString("base64")}`;
+
+  const { jiraEmail, jiraApiToken } = config;
+  if (jiraEmail && jiraApiToken) {
+    return `Basic ${Buffer.from(`${jiraEmail}:${jiraApiToken}`).toString("base64")}`;
   }
   throw new Error(
-    "Set JIRA_BEARER_TOKEN or both JIRA_EMAIL and JIRA_API_TOKEN"
+    "JIRA_EMAIL and JIRA_API_TOKEN must be set in .env. See .env.example"
   );
 }
 
-async function jiraFetch(path: string): Promise<any> {
-  const res = await fetch(`${JIRA_BASE_URL}${path}`, {
+async function jiraFetch(apiPath: string): Promise<any> {
+  const res = await fetch(`${JIRA_BASE_URL}${apiPath}`, {
     headers: {
       Authorization: getAuthHeader(),
       Accept: "application/json",
@@ -52,12 +44,23 @@ export interface JiraIssue {
   children?: JiraIssue[];
 }
 
-export interface TrackedEpic {
+export interface LinkedIdea {
   key: string;
   summary: string;
   status: string;
+  statusCategory: string;
+  url: string;
+  updated?: string;
+}
+
+export interface DeliveryEpic {
+  key: string;
+  summary: string;
+  status: string;
+  statusCategory: string;
   assignee: string | null;
   url: string;
+  idea: LinkedIdea | null;
   children: JiraIssue[];
   progress: { done: number; total: number };
 }
@@ -76,7 +79,6 @@ function mapIssue(issue: any): JiraIssue {
   };
 }
 
-/** Use the search/jql endpoint for all issue fetching (direct GET returns 404 on some Jira Cloud setups) */
 async function searchIssues(
   jql: string,
   fields: string,
@@ -91,17 +93,31 @@ async function searchIssues(
   return data.issues ?? [];
 }
 
-async function fetchEpicWithChildren(epicKey: string): Promise<TrackedEpic> {
-  // Fetch the epic itself via search
-  const [epic] = await searchIssues(
-    `key = ${epicKey}`,
-    "summary,status,assignee"
-  );
-  if (!epic) {
-    throw new Error(`Issue ${epicKey} not found`);
+function extractLinkedIdea(issuelinks: any[]): LinkedIdea | null {
+  const IDEA_LINK_TYPES = [
+    "Polaris work item link",
+    "Polaris datapoint work item link",
+  ];
+  for (const link of issuelinks) {
+    if (!IDEA_LINK_TYPES.includes(link.type?.name)) continue;
+    const candidate = link.inwardIssue ?? link.outwardIssue;
+    if (candidate?.fields?.issuetype?.name === "Idea") {
+      return {
+        key: candidate.key,
+        summary: candidate.fields.summary,
+        status: candidate.fields.status?.name ?? "Unknown",
+        statusCategory: candidate.fields.status?.statusCategory?.key ?? "undefined",
+        url: `${JIRA_BASE_URL}/browse/${candidate.key}`,
+        updated: candidate.fields.updated,
+      };
+    }
   }
+  return null;
+}
 
-  // Fetch child issues (stories/tasks linked to the epic)
+async function fetchChildrenForEpic(
+  epicKey: string
+): Promise<{ children: JiraIssue[]; progress: { done: number; total: number } }> {
   const children: JiraIssue[] = (
     await searchIssues(
       `("Epic Link" = ${epicKey} OR parent = ${epicKey}) ORDER BY status ASC, updated DESC`,
@@ -109,7 +125,6 @@ async function fetchEpicWithChildren(epicKey: string): Promise<TrackedEpic> {
     )
   ).map(mapIssue);
 
-  // Fetch subtasks for all children in one batched query
   if (children.length > 0) {
     const childKeys = children.map((c) => c.key).join(", ");
     const subtasks = (
@@ -117,9 +132,11 @@ async function fetchEpicWithChildren(epicKey: string): Promise<TrackedEpic> {
         `parent in (${childKeys}) ORDER BY status ASC, updated DESC`,
         "summary,status,assignee,priority,issuetype,updated,parent"
       )
-    ).map((raw) => ({ ...mapIssue(raw), parentKey: raw.fields.parent?.key as string | undefined }));
+    ).map((raw) => ({
+      ...mapIssue(raw),
+      parentKey: raw.fields.parent?.key as string | undefined,
+    }));
 
-    // Group subtasks by parent key
     const subtasksByParent = new Map<string, JiraIssue[]>();
     for (const st of subtasks) {
       if (st.parentKey) {
@@ -129,7 +146,6 @@ async function fetchEpicWithChildren(epicKey: string): Promise<TrackedEpic> {
       }
     }
 
-    // Attach subtasks to their parent children
     for (const child of children) {
       const subs = subtasksByParent.get(child.key);
       if (subs && subs.length > 0) {
@@ -139,94 +155,94 @@ async function fetchEpicWithChildren(epicKey: string): Promise<TrackedEpic> {
   }
 
   const done = children.filter((c) => c.statusCategory === "done").length;
-
-  return {
-    key: epic.key,
-    summary: epic.fields.summary,
-    status: epic.fields.status?.name ?? "Unknown",
-    assignee: epic.fields.assignee?.displayName ?? null,
-    url: `${JIRA_BASE_URL}/browse/${epic.key}`,
-    children,
-    progress: { done, total: children.length },
-  };
-}
-
-// --- Tracked epics persistence ---
-
-function loadTrackedEpicKeys(): string[] {
-  try {
-    if (!fs.existsSync(CONFIG_DIR)) {
-      fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    }
-    if (fs.existsSync(TRACKED_EPICS_PATH)) {
-      return JSON.parse(fs.readFileSync(TRACKED_EPICS_PATH, "utf-8"));
-    }
-  } catch {
-    // ignore
-  }
-  return [];
-}
-
-function saveTrackedEpicKeys(keys: string[]): void {
-  if (!fs.existsSync(CONFIG_DIR)) {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  }
-  fs.writeFileSync(TRACKED_EPICS_PATH, JSON.stringify(keys, null, 2), "utf-8");
-}
-
-/** Extract a Jira issue key from a key string or full URL */
-function extractIssueKey(input: string): string | null {
-  const trimmed = input.trim();
-  // Match "MVP-1234" style keys
-  const keyMatch = trimmed.match(/^([A-Z]+-\d+)$/i);
-  if (keyMatch) return keyMatch[1].toUpperCase();
-  // Match URLs like https://claimable.atlassian.net/browse/MVP-1234
-  const urlMatch = trimmed.match(/\/browse\/([A-Z]+-\d+)/i);
-  if (urlMatch) return urlMatch[1].toUpperCase();
-  return null;
+  return { children, progress: { done, total: children.length } };
 }
 
 export const jiraRouter = Router();
 
-// Get all tracked epics with their children
-jiraRouter.get("/api/jira/epics", async (_req, res) => {
+jiraRouter.get("/api/jira/delivery", async (_req, res) => {
   try {
-    const keys = loadTrackedEpicKeys();
-    const epics = await Promise.all(keys.map(fetchEpicWithChildren));
+    const rawEpics = await searchIssues(
+      'project = MVP AND issuetype = Epic AND status in ("In Delivery", "In Progress", "Committed - TODO") ORDER BY updated DESC',
+      "summary,status,assignee,issuelinks"
+    );
+
+    const results = await Promise.allSettled(
+      rawEpics.map(async (raw): Promise<DeliveryEpic> => {
+        const idea = extractLinkedIdea(raw.fields.issuelinks ?? []);
+        const { children, progress } = await fetchChildrenForEpic(raw.key);
+        return {
+          key: raw.key,
+          summary: raw.fields.summary,
+          status: raw.fields.status?.name ?? "Unknown",
+          statusCategory: raw.fields.status?.statusCategory?.key ?? "undefined",
+          assignee: raw.fields.assignee?.displayName ?? null,
+          url: `${JIRA_BASE_URL}/browse/${raw.key}`,
+          idea,
+          children,
+          progress,
+        };
+      })
+    );
+
+    const epics = results
+      .filter((r): r is PromiseFulfilledResult<DeliveryEpic> => r.status === "fulfilled")
+      .map((r) => r.value);
+
     res.json({ epics });
   } catch (err) {
-    console.error("Error fetching Jira epics:", err);
+    console.error("Error fetching delivery epics:", err);
     res.status(500).json({
-      error: err instanceof Error ? err.message : "Failed to fetch epics",
+      error: err instanceof Error ? err.message : "Failed to fetch delivery epics",
     });
   }
 });
 
-// Add a tracked epic
-jiraRouter.post("/api/jira/epics", (req, res) => {
-  const { key } = req.body as { key?: string };
-  if (!key || typeof key !== "string") {
-    res.status(400).json({ error: "key is required" });
-    return;
+jiraRouter.get("/api/jira/ideas", async (_req, res) => {
+  try {
+    const rawIdeas = await searchIssues(
+      "project = DB AND issuetype = Idea ORDER BY updated DESC",
+      "summary,status,updated"
+    );
+
+    const ideas = rawIdeas.map((raw) => ({
+      key: raw.key,
+      summary: raw.fields.summary,
+      status: raw.fields.status?.name ?? "Unknown",
+      statusCategory: raw.fields.status?.statusCategory?.key ?? "undefined",
+      url: `${JIRA_BASE_URL}/browse/${raw.key}`,
+      updated: raw.fields.updated,
+    }));
+
+    res.json({ ideas });
+  } catch (err) {
+    console.error("Error fetching ideas:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Failed to fetch ideas",
+    });
   }
-  const keys = loadTrackedEpicKeys();
-  const normalized = extractIssueKey(key);
-  if (!normalized) {
-    res.status(400).json({ error: "Invalid issue key or URL" });
-    return;
-  }
-  if (!keys.includes(normalized)) {
-    keys.push(normalized);
-    saveTrackedEpicKeys(keys);
-  }
-  res.json({ tracked: keys });
 });
 
-// Remove a tracked epic
-jiraRouter.delete("/api/jira/epics/:key", (req, res) => {
-  const keys = loadTrackedEpicKeys();
-  const normalized = req.params.key.toUpperCase().trim();
-  const filtered = keys.filter((k) => k !== normalized);
-  saveTrackedEpicKeys(filtered);
-  res.json({ tracked: filtered });
+jiraRouter.get("/api/jira/issue/:key/details", async (req, res) => {
+  try {
+    const key = req.params.key.toUpperCase().trim();
+    const issue = await jiraFetch(
+      `/rest/api/3/issue/${key}?fields=summary,status,issuetype,description,assignee,priority&expand=renderedFields`
+    );
+    res.json({
+      key: issue.key,
+      summary: issue.fields.summary,
+      status: issue.fields.status?.name ?? "Unknown",
+      statusCategory: issue.fields.status?.statusCategory?.key ?? "undefined",
+      issueType: issue.fields.issuetype?.name ?? "Unknown",
+      assignee: issue.fields.assignee?.displayName ?? null,
+      descriptionHtml: issue.renderedFields?.description ?? null,
+      url: `${JIRA_BASE_URL}/browse/${issue.key}`,
+    });
+  } catch (err) {
+    console.error("Error fetching issue details:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Failed to fetch issue details",
+    });
+  }
 });

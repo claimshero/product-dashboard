@@ -3,6 +3,9 @@ build/
 .react-router/
 .context/
 
+# Tokens
+.tokens/
+
 # Environment
 .env
 .env.local

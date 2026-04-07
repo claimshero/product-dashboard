@@ -1,10 +1,10 @@
-import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import fs from "fs";
 import os from "os";
 import path from "path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { config } from "./config.js";
 import {
   listConversations,
   getConversation,
@@ -13,11 +13,16 @@ import {
   updateConversation,
   appendMessages,
 } from "./conversations.js";
+import { betsRouter } from "./bets.js";
 import { dailyNotesRouter } from "./daily-notes.js";
+import { tasksRouter } from "./tasks-router.js";
 import { githubPRsRouter } from "./github-prs.js";
 import { jiraRouter } from "./jira.js";
 import { scheduledTasksRouter } from "./scheduled-tasks-router.js";
 import { trackedInterestsRouter } from "./tracked-interests-router.js";
+import { clientsPartnersRouter } from "./clients-partners.js";
+import { prioritiesRouter } from "./priorities.js";
+import { intelRouter } from "./intel.js";
 import { startScheduler } from "./scheduler.js";
 import { loadTaskDefinitions, createTaskDefinitionWithId, updateTaskDefinition } from "./scheduled-tasks.js";
 import {
@@ -27,6 +32,107 @@ import {
   DAILY_BRIEFING_PROMPT,
   DAILY_BRIEFING_SYSTEM_PROMPT,
 } from "./prompts.js";
+
+interface ChatContext {
+  selectedNode?: {
+    type: string;
+    name?: string;
+    slug?: string;
+    filePath?: string;
+    fileName?: string;
+    filename?: string;
+    date?: string;
+    key?: string;
+    summary?: string;
+    status?: string;
+    issueType?: string;
+    url?: string;
+  } | null;
+  selectedTask?: {
+    id: string;
+    text: string;
+    completed: boolean;
+    betSlug: string | null;
+    jiraKey: string | null;
+    clientSlug: string | null;
+    partnerSlug: string | null;
+    urgency: string | null;
+    category: string;
+  } | null;
+}
+
+function buildSystemPrompt(context?: ChatContext): string {
+  let prompt = CHAT_SYSTEM_PROMPT;
+  const node = context?.selectedNode;
+  if (!node) return prompt;
+
+  prompt += `\n\n## Currently selected item\nThe user is currently viewing this item in the dashboard:\n`;
+
+  switch (node.type) {
+    case "bet":
+      prompt += `- **Type:** Bet\n- **Name:** ${node.name}\n- **Status:** ${node.status}\n- **Vault folder:** Product/Bets/${node.slug}/\n\nThis is a product bet from ${config.userName}'s Obsidian vault. The bet.md file and any notes/research files are in the vault at the path above. When the user refers to "this bet" or asks about it, read the bet.md and related files to answer.`;
+      break;
+    case "bet-file":
+      prompt += `- **Type:** Bet file\n- **Bet folder:** Product/Bets/${node.slug}/\n- **File:** ${node.filePath}\n\nThe user is viewing a specific file within a bet folder. Read this file from the vault to answer questions about it.`;
+      break;
+    case "jira-idea":
+    case "jira-epic":
+    case "jira-story": {
+      const typeLabel = node.type === "jira-idea" ? "Idea" : node.type === "jira-epic" ? "Epic" : node.issueType ?? "Story";
+      prompt += `- **Type:** ${typeLabel}\n- **Key:** ${node.key}\n- **Summary:** ${node.summary}\n- **Status:** ${node.status}\n- **URL:** ${node.url}\n\nWhen the user refers to "this", "the selected item", or asks about something without specifying which item, they likely mean this item. You can use the Jira MCP tools to look up more details about it.`;
+      break;
+    }
+    case "meeting-note":
+      prompt += `- **Type:** Meeting note\n- **Name:** ${node.name}\n- **Date:** ${node.date ?? ""}\n- **File:** Daily/meetings/${node.filename ?? ""}\n\nThe user is viewing a meeting note. Read the file from the vault to answer questions about it.`;
+      break;
+    case "client":
+      prompt += `- **Type:** Client\n- **Name:** ${node.name}\n- **Relationship:** ${node.status ?? ""}\n- **Vault folder:** Product/Clients/${node.slug}/\n\nThis is a client from ${config.userName}'s Obsidian vault. Read the client.md and related notes to answer questions about this client.`;
+      break;
+    case "partner":
+      prompt += `- **Type:** Partner\n- **Name:** ${node.name}\n- **Relationship:** ${node.status ?? ""}\n- **Vault folder:** Product/Partners/${node.slug}/\n\nThis is a partner from ${config.userName}'s Obsidian vault. Read the partner.md and related notes to answer questions about this partner.`;
+      break;
+    case "client-file":
+      prompt += `- **Type:** Client file\n- **Client folder:** Product/Clients/${node.slug}/\n- **File:** ${node.filePath}\n\nThe user is viewing a specific file within a client folder. Read this file from the vault to answer questions about it.`;
+      break;
+    case "partner-file":
+      prompt += `- **Type:** Partner file\n- **Partner folder:** Product/Partners/${node.slug}/\n- **File:** ${node.filePath}\n\nThe user is viewing a specific file within a partner folder. Read this file from the vault to answer questions about it.`;
+      break;
+    case "competitor":
+      prompt += `- **Type:** Competitor profile\n- **Name:** ${node.name}\n- **Threat Level:** ${node.status ?? ""}\n- **Vault folder:** Business/Competitive Intelligence/competitors/${node.slug}/\n\nThe user is viewing a competitor profile in the Intelligence view. Read the profile.md and any signal files in the signals/ subfolder to answer questions. Also read Business/Strategy/strategic-context-snapshot.md for strategic context. Ground all analysis in Claimable's actual strategy.`;
+      break;
+    case "competitor-signal":
+      prompt += `- **Type:** Competitor signal\n- **Signal:** ${node.name ?? ""}\n- **File:** Business/Competitive Intelligence/competitors/${node.slug}/signals/\n\nThe user is viewing a specific competitive intelligence signal. Read the signal file and the related competitor profile for context.`;
+      break;
+    case "briefing":
+      prompt += `- **Type:** Daily briefing\n- **Date:** ${(node as any).date ?? ""}\n- **File:** Business/Competitive Intelligence/briefings/daily/${(node as any).date ?? ""}.md\n\nThe user is viewing a daily intelligence briefing. Read the briefing file to answer questions about it.`;
+      break;
+    case "intel-partnership":
+      prompt += `- **Type:** Strategic partnership\n- **Name:** ${node.name}\n- **Status:** ${node.status ?? ""}\n- **Vault folder:** Business/Partnerships/${node.slug}/\n\nThe user is viewing a partnership in the Intelligence view. Read the partnership.md file and related context. Also read Business/Strategy/strategic-context-snapshot.md for strategic context.`;
+      break;
+    case "strategy-doc":
+      prompt += `- **Type:** Strategy document\n- **Document:** ${(node as any).docType ?? ""}\n\nThe user is viewing a strategy document in the Intelligence view. This is a reference document from Business/Strategy/ or Business/Competitive Intelligence/.`;
+      break;
+    case "market-signal":
+      prompt += `- **Type:** Market signal\n- **Signal:** ${node.name ?? ""}\n- **File:** Business/Competitive Intelligence/market/signals/\n\nThe user is viewing a market-level intelligence signal. Read the signal file for context.`;
+      break;
+  }
+
+  const task = context?.selectedTask;
+  if (task) {
+    prompt += `\n\n## Currently selected task\nThe user has selected this task in the dashboard. When they refer to "this task" or "the task", they mean:\n`;
+    prompt += `- **Text:** ${task.text}\n`;
+    prompt += `- **Status:** ${task.completed ? "Completed" : "To Do"}\n`;
+    prompt += `- **Category:** ${task.category}\n`;
+    if (task.urgency) prompt += `- **Urgency:** ${task.urgency}\n`;
+    if (task.betSlug) prompt += `- **Bet:** ${task.betSlug}\n`;
+    if (task.jiraKey) prompt += `- **JIRA:** ${task.jiraKey}\n`;
+    if (task.clientSlug) prompt += `- **Client:** ${task.clientSlug}\n`;
+    if (task.partnerSlug) prompt += `- **Partner:** ${task.partnerSlug}\n`;
+    prompt += `\nThe task lives in the file Tasks/${task.category}.md in the Obsidian vault.`;
+  }
+
+  return prompt;
+}
 
 const app = express();
 const PORT = process.env.CHAT_PORT ?? 4001;
@@ -51,11 +157,16 @@ if (Object.keys(mcpServers).length > 0) {
 
 app.use(cors());
 app.use(express.json());
+app.use(betsRouter);
 app.use(dailyNotesRouter);
+app.use(tasksRouter);
 app.use(githubPRsRouter);
 app.use(jiraRouter);
 app.use(scheduledTasksRouter);
 app.use(trackedInterestsRouter);
+app.use(clientsPartnersRouter);
+app.use(prioritiesRouter);
+app.use(intelRouter);
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -142,9 +253,10 @@ async function generateConversationTitle(
 }
 
 app.post("/api/chat", async (req, res) => {
-  const { prompt, conversationId } = req.body as {
+  const { prompt, conversationId, context } = req.body as {
     prompt?: string;
     conversationId?: string;
+    context?: ChatContext;
   };
 
   if (!prompt || typeof prompt !== "string") {
@@ -188,7 +300,11 @@ app.post("/api/chat", async (req, res) => {
   res.write(`event: meta\ndata: ${metaData}\n\n`);
 
   let accumulated = "";
-  let hasContentInCurrentTurn = false;
+
+  // Helper to send an SSE event
+  const sse = (event: string, payload: Record<string, unknown>) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+  };
 
   try {
     for await (const message of query({
@@ -196,9 +312,9 @@ app.post("/api/chat", async (req, res) => {
       options: {
         permissionMode: "bypassPermissions",
         includePartialMessages: true,
-        additionalDirectories: [OBSIDIAN_VAULT_PATH, APP_SUPPORT_DIR],
+        additionalDirectories: [OBSIDIAN_VAULT_PATH, APP_SUPPORT_DIR, path.join(os.homedir(), ".claude/agents")],
         mcpServers,
-        systemPrompt: CHAT_SYSTEM_PROMPT,
+        systemPrompt: buildSystemPrompt(context),
         ...(sessionId ? { resume: sessionId } : {}),
       },
     })) {
@@ -210,6 +326,54 @@ app.post("/api/chat", async (req, res) => {
         }
       }
 
+      // Tool progress updates (elapsed time for running tools)
+      if (message.type === "tool_progress") {
+        const tp = message as any;
+        sse("tool_progress", {
+          id: tp.tool_use_id,
+          name: tp.tool_name,
+          elapsed: tp.elapsed_time_seconds,
+        });
+      }
+
+      // Complete assistant messages — extract tool use results from content blocks
+      if (message.type === "assistant") {
+        const assistantMsg = (message as any).message;
+        if (assistantMsg?.content) {
+          for (const block of assistantMsg.content) {
+            if (block.type === "tool_use") {
+              // Tool started (from complete message — backup if stream_event missed it)
+              sse("tool_start", { id: block.id, name: block.name });
+            }
+          }
+        }
+      }
+
+      // Synthetic user messages carry tool results
+      if (message.type === "user" && (message as any).tool_use_result !== undefined) {
+        const userMsg = message as any;
+        // Extract tool_use_id from the message content
+        const content = userMsg.message?.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === "tool_result" && block.tool_use_id) {
+              sse("tool_done", { id: block.tool_use_id });
+            }
+          }
+        }
+      }
+
+      // Result message — final stats
+      if (message.type === "result") {
+        const result = message as any;
+        sse("result", {
+          costUsd: result.total_cost_usd ?? 0,
+          inputTokens: result.usage?.input_tokens ?? 0,
+          outputTokens: result.usage?.output_tokens ?? 0,
+          durationMs: result.duration_ms ?? 0,
+        });
+      }
+
       if (message.type === "stream_event") {
         const event = (message as any).event;
 
@@ -217,19 +381,40 @@ app.post("/api/chat", async (req, res) => {
         if (event.type === "message_start" && accumulated.length > 0) {
           const separator = "\n\n";
           accumulated += separator;
-          const data = JSON.stringify({ text: separator });
-          res.write(`event: delta\ndata: ${data}\n\n`);
-          hasContentInCurrentTurn = false;
+          sse("delta", { text: separator });
         }
 
+        // Content block start — detect thinking and tool_use blocks
+        if (event.type === "content_block_start" && event.content_block) {
+          if (event.content_block.type === "thinking") {
+            sse("thinking_start", {});
+          } else if (event.content_block.type === "tool_use") {
+            sse("tool_start", { id: event.content_block.id, name: event.content_block.name });
+          }
+        }
+
+        // Content block stop — mark thinking as done
+        if (event.type === "content_block_stop") {
+          // We track which block index this is; for simplicity just signal thinking_done
+          // The frontend will close the current thinking block
+          sse("thinking_done", {});
+        }
+
+        // Thinking deltas
         if (
           event.type === "content_block_delta" &&
-          event.delta.type === "text_delta"
+          event.delta?.type === "thinking_delta"
+        ) {
+          sse("thinking", { text: event.delta.thinking });
+        }
+
+        // Text deltas (the actual response content)
+        if (
+          event.type === "content_block_delta" &&
+          event.delta?.type === "text_delta"
         ) {
           accumulated += event.delta.text;
-          hasContentInCurrentTurn = true;
-          const data = JSON.stringify({ text: event.delta.text });
-          res.write(`event: delta\ndata: ${data}\n\n`);
+          sse("delta", { text: event.delta.text });
         }
       }
     }
