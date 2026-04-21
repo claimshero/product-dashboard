@@ -1,12 +1,12 @@
 import { ActionIcon, Menu, Text, Tooltip } from "@mantine/core";
 import type { ConversationSummary, Message } from "~/types/chat";
 import { MessageList } from "./MessageList";
-import { ChatInput } from "./ChatInput";
+import { ChatInput, type PendingAttachment } from "./ChatInput";
 
 interface ChatInterfaceProps {
   messages: Message[];
   isStreaming: boolean;
-  onSendMessage: (prompt: string) => void;
+  onSendMessage: (prompt: string, attachments: PendingAttachment[]) => void;
   onStop?: () => void;
   onClose?: () => void;
   conversations: ConversationSummary[];

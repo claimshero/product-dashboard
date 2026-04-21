@@ -20,10 +20,19 @@ A personal work dashboard that combines an AI chat assistant (Claude Agent SDK) 
 
 The dashboard reads/writes directly to Josh's Obsidian vault:
 - Vault path: `/Users/joshroberts/Workspace/Josh Vault`
-- Daily notes live in `Daily/` as `YYYY-MM-DD.md` files
-- Product context lives in `Product/` (company-context, bets, operating model)
-- Claude instructions and project configs live in `Claude/`
-- Templates live in `Templates/` — always use the real template file, never hardcode fallbacks. If the template can't be read, throw an error.
+- `Product/Context/` — Company context, operating model, bet structure, workflow docs
+- `Product/Strategy/` — Strategic context snapshot
+- `Product/Bets/` — Active product bets (each with bet.md and notes/)
+- `Business/Clients/` — Client profiles and scoped notes
+- `Business/Partners/` — Partner profiles, partnership analysis, scoped notes
+- `Business/Competitors/` — Competitor profiles and signals
+- `Business/Context/` — Watch list and intelligence sources
+- `Business/Briefings/` — Daily and weekly competitive intelligence briefings
+- `Business/Market/` — Market-level signals and trends
+- `Daily/` — Daily notes as YYYY-MM-DD.md files
+- `Tasks/` — Persistent task list by category
+- `Agents/` — Claude agent definitions (symlinked from ~/.claude/agents/)
+- `Templates/` — always use the real template file, never hardcode fallbacks. If the template can't be read, throw an error.
 
 ## UI patterns
 

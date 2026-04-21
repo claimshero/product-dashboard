@@ -3,8 +3,15 @@ import cors from "cors";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import multer from "multer";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { config } from "./config.js";
+import { config, ATTACHMENTS_DIR } from "./config.js";
+import {
+  saveAttachments,
+  buildPromptWithAttachments,
+  ensureAttachmentsDir,
+  type Attachment,
+} from "./attachments.js";
 import {
   listConversations,
   getConversation,
@@ -86,34 +93,34 @@ function buildSystemPrompt(context?: ChatContext): string {
       prompt += `- **Type:** Meeting note\n- **Name:** ${node.name}\n- **Date:** ${node.date ?? ""}\n- **File:** Daily/meetings/${node.filename ?? ""}\n\nThe user is viewing a meeting note. Read the file from the vault to answer questions about it.`;
       break;
     case "client":
-      prompt += `- **Type:** Client\n- **Name:** ${node.name}\n- **Relationship:** ${node.status ?? ""}\n- **Vault folder:** Product/Clients/${node.slug}/\n\nThis is a client from ${config.userName}'s Obsidian vault. Read the client.md and related notes to answer questions about this client.`;
+      prompt += `- **Type:** Client\n- **Name:** ${node.name}\n- **Relationship:** ${node.status ?? ""}\n- **Vault folder:** Business/Clients/${node.slug}/\n\nThis is a client from ${config.userName}'s Obsidian vault. Read the client.md and related notes to answer questions about this client.`;
       break;
     case "partner":
-      prompt += `- **Type:** Partner\n- **Name:** ${node.name}\n- **Relationship:** ${node.status ?? ""}\n- **Vault folder:** Product/Partners/${node.slug}/\n\nThis is a partner from ${config.userName}'s Obsidian vault. Read the partner.md and related notes to answer questions about this partner.`;
+      prompt += `- **Type:** Partner\n- **Name:** ${node.name}\n- **Relationship:** ${node.status ?? ""}\n- **Vault folder:** Business/Partners/${node.slug}/\n\nThis is a partner from ${config.userName}'s Obsidian vault. Read the partner.md and related notes to answer questions about this partner.`;
       break;
     case "client-file":
-      prompt += `- **Type:** Client file\n- **Client folder:** Product/Clients/${node.slug}/\n- **File:** ${node.filePath}\n\nThe user is viewing a specific file within a client folder. Read this file from the vault to answer questions about it.`;
+      prompt += `- **Type:** Client file\n- **Client folder:** Business/Clients/${node.slug}/\n- **File:** ${node.filePath}\n\nThe user is viewing a specific file within a client folder. Read this file from the vault to answer questions about it.`;
       break;
     case "partner-file":
-      prompt += `- **Type:** Partner file\n- **Partner folder:** Product/Partners/${node.slug}/\n- **File:** ${node.filePath}\n\nThe user is viewing a specific file within a partner folder. Read this file from the vault to answer questions about it.`;
+      prompt += `- **Type:** Partner file\n- **Partner folder:** Business/Partners/${node.slug}/\n- **File:** ${node.filePath}\n\nThe user is viewing a specific file within a partner folder. Read this file from the vault to answer questions about it.`;
       break;
     case "competitor":
-      prompt += `- **Type:** Competitor profile\n- **Name:** ${node.name}\n- **Threat Level:** ${node.status ?? ""}\n- **Vault folder:** Business/Competitive Intelligence/competitors/${node.slug}/\n\nThe user is viewing a competitor profile in the Intelligence view. Read the profile.md and any signal files in the signals/ subfolder to answer questions. Also read Business/Strategy/strategic-context-snapshot.md for strategic context. Ground all analysis in Claimable's actual strategy.`;
+      prompt += `- **Type:** Competitor profile\n- **Name:** ${node.name}\n- **Threat Level:** ${node.status ?? ""}\n- **Vault folder:** Business/Competitors/${node.slug}/\n\nThe user is viewing a competitor profile in the Intelligence view. Read the profile.md and any signal files in the signals/ subfolder to answer questions. Also read Product/Strategy/strategic-context-snapshot.md for strategic context. Ground all analysis in Claimable's actual strategy.`;
       break;
     case "competitor-signal":
-      prompt += `- **Type:** Competitor signal\n- **Signal:** ${node.name ?? ""}\n- **File:** Business/Competitive Intelligence/competitors/${node.slug}/signals/\n\nThe user is viewing a specific competitive intelligence signal. Read the signal file and the related competitor profile for context.`;
+      prompt += `- **Type:** Competitor signal\n- **Signal:** ${node.name ?? ""}\n- **File:** Business/Competitors/${node.slug}/signals/\n\nThe user is viewing a specific competitive intelligence signal. Read the signal file and the related competitor profile for context.`;
       break;
     case "briefing":
-      prompt += `- **Type:** Daily briefing\n- **Date:** ${(node as any).date ?? ""}\n- **File:** Business/Competitive Intelligence/briefings/daily/${(node as any).date ?? ""}.md\n\nThe user is viewing a daily intelligence briefing. Read the briefing file to answer questions about it.`;
+      prompt += `- **Type:** Daily briefing\n- **Date:** ${(node as any).date ?? ""}\n- **File:** Business/Briefings/daily/${(node as any).date ?? ""}.md\n\nThe user is viewing a daily intelligence briefing. Read the briefing file to answer questions about it.`;
       break;
     case "intel-partnership":
-      prompt += `- **Type:** Strategic partnership\n- **Name:** ${node.name}\n- **Status:** ${node.status ?? ""}\n- **Vault folder:** Business/Partnerships/${node.slug}/\n\nThe user is viewing a partnership in the Intelligence view. Read the partnership.md file and related context. Also read Business/Strategy/strategic-context-snapshot.md for strategic context.`;
+      prompt += `- **Type:** Strategic partnership\n- **Name:** ${node.name}\n- **Status:** ${node.status ?? ""}\n- **Vault folder:** Business/Partners/${node.slug}/\n\nThe user is viewing a partnership in the Intelligence view. Read the partner.md file and related context. Also read Product/Strategy/strategic-context-snapshot.md for strategic context.`;
       break;
     case "strategy-doc":
-      prompt += `- **Type:** Strategy document\n- **Document:** ${(node as any).docType ?? ""}\n\nThe user is viewing a strategy document in the Intelligence view. This is a reference document from Business/Strategy/ or Business/Competitive Intelligence/.`;
+      prompt += `- **Type:** Strategy document\n- **Document:** ${(node as any).docType ?? ""}\n\nThe user is viewing a strategy document in the Intelligence view. This is a reference document from Product/Strategy/ or Business/Context/.`;
       break;
     case "market-signal":
-      prompt += `- **Type:** Market signal\n- **Signal:** ${node.name ?? ""}\n- **File:** Business/Competitive Intelligence/market/signals/\n\nThe user is viewing a market-level intelligence signal. Read the signal file for context.`;
+      prompt += `- **Type:** Market signal\n- **Signal:** ${node.name ?? ""}\n- **File:** Business/Market/signals/\n\nThe user is viewing a market-level intelligence signal. Read the signal file for context.`;
       break;
   }
 
@@ -157,6 +164,19 @@ if (Object.keys(mcpServers).length > 0) {
 
 app.use(cors());
 app.use(express.json());
+
+// Serve uploaded attachments (images, PDFs, etc.)
+ensureAttachmentsDir();
+app.use("/attachments", express.static(ATTACHMENTS_DIR));
+
+// Multer for multipart/form-data uploads on /api/chat
+const ATTACHMENT_MAX_FILES = 20;
+const ATTACHMENT_MAX_SIZE = 25 * 1024 * 1024; // 25 MB per file
+const uploadAttachments = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: ATTACHMENT_MAX_SIZE, files: ATTACHMENT_MAX_FILES },
+});
+
 app.use(betsRouter);
 app.use(dailyNotesRouter);
 app.use(tasksRouter);
@@ -252,15 +272,30 @@ async function generateConversationTitle(
   }
 }
 
-app.post("/api/chat", async (req, res) => {
-  const { prompt, conversationId, context } = req.body as {
-    prompt?: string;
-    conversationId?: string;
-    context?: ChatContext;
-  };
+app.post("/api/chat", uploadAttachments.array("attachments"), async (req, res) => {
+  // Body fields arrive as strings (multipart) or JSON objects (application/json)
+  const rawContext = (req.body as any)?.context;
+  let parsedContext: ChatContext | undefined;
+  if (typeof rawContext === "string") {
+    try {
+      parsedContext = JSON.parse(rawContext) as ChatContext;
+    } catch {
+      parsedContext = undefined;
+    }
+  } else if (rawContext && typeof rawContext === "object") {
+    parsedContext = rawContext as ChatContext;
+  }
 
-  if (!prompt || typeof prompt !== "string") {
-    res.status(400).json({ error: "prompt is required" });
+  const prompt = typeof req.body?.prompt === "string" ? req.body.prompt : "";
+  const conversationId =
+    typeof req.body?.conversationId === "string" && req.body.conversationId
+      ? req.body.conversationId
+      : undefined;
+  const context = parsedContext;
+  const uploadedFiles = (req.files as Express.Multer.File[] | undefined) ?? [];
+
+  if (!prompt.trim() && uploadedFiles.length === 0) {
+    res.status(400).json({ error: "prompt or attachments required" });
     return;
   }
 
@@ -280,12 +315,18 @@ app.post("/api/chat", async (req, res) => {
     convTitle = existing.title;
   } else {
     // Auto-create a new conversation with a title derived from the prompt
+    const titleSource = prompt.trim() || uploadedFiles.map((f) => f.originalname).join(", ");
     const title =
-      prompt.length > 60 ? prompt.slice(0, 57) + "..." : prompt;
-    const newConv = createConversation(title);
+      titleSource.length > 60 ? titleSource.slice(0, 57) + "..." : titleSource;
+    const newConv = createConversation(title || "New Chat");
     convId = newConv.id;
     convTitle = newConv.title;
   }
+
+  // Persist attachments to disk now that we have a conversationId
+  const attachments: Attachment[] = uploadedFiles.length
+    ? saveAttachments(convId, uploadedFiles)
+    : [];
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -306,9 +347,14 @@ app.post("/api/chat", async (req, res) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
   };
 
+  // Expand attachments into the prompt: inline text files, reference binaries by path
+  // so Claude's Read tool can open them. This is more reliable than passing base64
+  // content blocks through the Claude Code CLI's stream-json input.
+  const finalPrompt = buildPromptWithAttachments(prompt, attachments);
+
   try {
     for await (const message of query({
-      prompt,
+      prompt: finalPrompt,
       options: {
         permissionMode: "bypassPermissions",
         includePartialMessages: true,
@@ -421,8 +467,13 @@ app.post("/api/chat", async (req, res) => {
 
     // Persist both user message and assistant response
     if (convId) {
+      const storedAttachments = attachments.map(({ path: _p, ...rest }) => rest);
       const messagesToAppend = [
-        { role: "user" as const, content: prompt },
+        {
+          role: "user" as const,
+          content: prompt,
+          ...(storedAttachments.length ? { attachments: storedAttachments } : {}),
+        },
         ...(accumulated
           ? [{ role: "assistant" as const, content: accumulated }]
           : []),

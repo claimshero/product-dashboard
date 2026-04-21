@@ -1,4 +1,5 @@
 import "dotenv/config";
+import os from "os";
 import path from "path";
 
 function required(name: string): string {
@@ -28,14 +29,21 @@ export const TEMPLATE_PATH = path.join(
   config.dailyNoteTemplate
 );
 export const BETS_DIR = path.join(config.vaultPath, "Product/Bets");
-export const CLIENTS_DIR = path.join(config.vaultPath, "Product/Clients");
-export const PARTNERS_DIR = path.join(config.vaultPath, "Product/Partners");
+export const CLIENTS_DIR = path.join(config.vaultPath, "Business/Clients");
+export const PARTNERS_DIR = path.join(config.vaultPath, "Business/Partners");
 export const MEETINGS_DIR = path.join(config.vaultPath, "Daily/meetings");
 
-// Intelligence / Business directories
-export const INTEL_DIR = path.join(config.vaultPath, "Business/Competitive Intelligence");
-export const COMPETITORS_DIR = path.join(INTEL_DIR, "competitors");
-export const BRIEFINGS_DIR = path.join(INTEL_DIR, "briefings/daily");
-export const MARKET_SIGNALS_DIR = path.join(INTEL_DIR, "market/signals");
-export const PARTNERSHIPS_DIR = path.join(config.vaultPath, "Business/Partnerships");
-export const STRATEGY_DIR = path.join(config.vaultPath, "Business/Strategy");
+// Business directories
+export const COMPETITORS_DIR = path.join(config.vaultPath, "Business/Competitors");
+export const BUSINESS_CONTEXT_DIR = path.join(config.vaultPath, "Business/Context");
+export const BRIEFINGS_DIR = path.join(config.vaultPath, "Business/Briefings/daily");
+export const WEEKLY_BRIEFINGS_DIR = path.join(config.vaultPath, "Business/Briefings/weekly");
+export const MARKET_SIGNALS_DIR = path.join(config.vaultPath, "Business/Market/signals");
+export const STRATEGY_DIR = path.join(config.vaultPath, "Product/Strategy");
+
+// Persistent app data (outside vault)
+export const APP_SUPPORT_DIR = path.join(
+  os.homedir(),
+  "Library/Application Support/work-dashboard"
+);
+export const ATTACHMENTS_DIR = path.join(APP_SUPPORT_DIR, "attachments");

@@ -56,6 +56,7 @@ export type NavNode =
   | { type: "competitor"; slug: string; name: string; threatLevel: string }
   | { type: "competitor-signal"; competitorSlug: string; signalSlug: string; title: string; relevance: string }
   | { type: "briefing"; date: string }
+  | { type: "weekly-briefing"; week: string; dates: string }
   | { type: "intel-partnership"; slug: string; name: string; status: string }
   | { type: "strategy-doc"; docType: "strategic-context" | "watch-list" | "sources" }
   | { type: "market-signal"; signalSlug: string; title: string; relevance: string };
@@ -88,6 +89,8 @@ export function navNodeId(node: NavNode): string {
       return `signal:${node.competitorSlug}/${node.signalSlug}`;
     case "briefing":
       return `briefing:${node.date}`;
+    case "weekly-briefing":
+      return `weekly-briefing:${node.week}`;
     case "intel-partnership":
       return `intel-partnership:${node.slug}`;
     case "strategy-doc":
@@ -103,7 +106,7 @@ export function navNodeToSelectedItem(node: NavNode): SelectedItem | null {
     node.type === "client" || node.type === "partner" ||
     node.type === "client-file" || node.type === "partner-file" ||
     node.type === "competitor" || node.type === "competitor-signal" ||
-    node.type === "briefing" || node.type === "intel-partnership" ||
+    node.type === "briefing" || node.type === "weekly-briefing" || node.type === "intel-partnership" ||
     node.type === "strategy-doc" || node.type === "market-signal"
   ) return null;
   return {

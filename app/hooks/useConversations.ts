@@ -1,9 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ConversationSummary, Message, MessageBlock, ResultStats } from "~/types/chat";
+import type {
+  Attachment,
+  ConversationSummary,
+  Message,
+  MessageBlock,
+  ResultStats,
+} from "~/types/chat";
+import type { PendingAttachment } from "~/components/ChatInput";
 
 function getChatUrl(path: string): string {
   if (typeof window === "undefined") return path;
   return `${window.location.protocol}//${window.location.hostname}:4001${path}`;
+}
+
+/** Derive a client-side Attachment preview from a PendingAttachment so the user
+ *  message renders immediately before the server responds. */
+function toPreviewAttachment(p: PendingAttachment): Attachment {
+  const kind: Attachment["kind"] = p.file.type.startsWith("image/")
+    ? "image"
+    : p.file.type === "application/pdf"
+      ? "document"
+      : p.file.type.startsWith("text/")
+        ? "text"
+        : "document";
+  return {
+    id: p.id,
+    filename: p.file.name,
+    mimeType: p.file.type || "application/octet-stream",
+    size: p.file.size,
+    kind,
+    // Object URL works for the user's current session; on reload the server URL takes over.
+    url: p.previewUrl ?? "",
+  };
 }
 
 export interface ChatContext {
@@ -151,11 +179,19 @@ export function useConversations(contextRef?: React.RefObject<ChatContext | null
   );
 
   const sendMessage = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, attachments: PendingAttachment[] = []) => {
       if (isStreaming) return;
 
-      // Optimistically add the user message to the display
-      setMessages((prev) => [...prev, { role: "user", content: prompt }]);
+      // Optimistically add the user message to the display, with preview attachments
+      const previewAttachments = attachments.map(toPreviewAttachment);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "user",
+          content: prompt,
+          ...(previewAttachments.length ? { attachments: previewAttachments } : {}),
+        },
+      ]);
       setIsStreaming(true);
       setStreamMessage(null);
       accRef.current = createAccumulator();
@@ -164,14 +200,21 @@ export function useConversations(contextRef?: React.RefObject<ChatContext | null
       abortRef.current = controller;
 
       try {
+        const formData = new FormData();
+        formData.append("prompt", prompt);
+        if (activeConversationId) {
+          formData.append("conversationId", activeConversationId);
+        }
+        if (contextRef?.current) {
+          formData.append("context", JSON.stringify(contextRef.current));
+        }
+        for (const a of attachments) {
+          formData.append("attachments", a.file, a.file.name);
+        }
+
         const response = await fetch(getChatUrl("/api/chat"), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            prompt,
-            conversationId: activeConversationId ?? undefined,
-            context: contextRef?.current ?? undefined,
-          }),
+          body: formData,
           signal: controller.signal,
         });
 

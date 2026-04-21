@@ -1,7 +1,93 @@
 import { Collapse, Loader, Paper } from "@mantine/core";
 import { useState } from "react";
 import Markdown from "react-markdown";
-import type { Message, MessageBlock, ResultStats } from "~/types/chat";
+import type { Attachment, Message, MessageBlock, ResultStats } from "~/types/chat";
+
+function getChatUrl(p: string): string {
+  if (typeof window === "undefined") return p;
+  if (p.startsWith("http") || p.startsWith("blob:")) return p;
+  return `${window.location.protocol}//${window.location.hostname}:4001${p}`;
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function AttachmentList({ attachments }: { attachments: Attachment[] }) {
+  const images = attachments.filter((a) => a.kind === "image");
+  const others = attachments.filter((a) => a.kind !== "image");
+
+  return (
+    <div className="mb-2 flex flex-col gap-2">
+      {images.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {images.map((a) => {
+            const src = getChatUrl(a.url);
+            return (
+              <a
+                key={a.id}
+                href={src}
+                target="_blank"
+                rel="noreferrer"
+                title={a.filename}
+              >
+                <img
+                  src={src}
+                  alt={a.filename}
+                  style={{
+                    maxWidth: 220,
+                    maxHeight: 160,
+                    borderRadius: 4,
+                    objectFit: "cover",
+                    display: "block",
+                  }}
+                />
+              </a>
+            );
+          })}
+        </div>
+      )}
+      {others.map((a) => (
+        <a
+          key={a.id}
+          href={getChatUrl(a.url)}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-2 rounded border px-2 py-1 text-xs no-underline"
+          style={{
+            backgroundColor: "rgba(255,255,255,0.05)",
+            borderColor: "rgba(255,255,255,0.15)",
+            color: "var(--mantine-color-gray-1)",
+            maxWidth: 260,
+          }}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+          <span className="truncate" style={{ maxWidth: 180 }}>
+            {a.filename}
+          </span>
+          <span style={{ color: "var(--mantine-color-dimmed)", fontSize: 10 }}>
+            {formatSize(a.size)}
+          </span>
+        </a>
+      ))}
+    </div>
+  );
+}
 
 interface MessageBubbleProps {
   message: Message;
@@ -124,6 +210,7 @@ function ResultFooter({ result }: { result: ResultStats }) {
 export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const hasBlocks = message.blocks && message.blocks.length > 0;
+  const hasAttachments = message.attachments && message.attachments.length > 0;
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -134,6 +221,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
         className="max-w-[80%]"
         bg={isUser ? "blue.8" : "dark.6"}
       >
+        {hasAttachments && <AttachmentList attachments={message.attachments!} />}
         {isUser ? (
           <div
             className="text-sm text-white"

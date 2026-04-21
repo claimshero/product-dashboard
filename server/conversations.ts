@@ -3,9 +3,19 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 
+export interface StoredAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  kind: "image" | "document" | "text";
+  url: string;
+}
+
 export interface Message {
   role: "user" | "assistant";
   content: string;
+  attachments?: StoredAttachment[];
 }
 
 export interface ConversationSummary {

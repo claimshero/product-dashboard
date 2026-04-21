@@ -16,3 +16,6 @@ build/
 .idea/
 *.swp
 *.swo
+
+# Local runtime state
+.claude/

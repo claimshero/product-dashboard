@@ -31,6 +31,13 @@ export interface BriefingSummary {
   sourcesChecked: number;
 }
 
+export interface WeeklyBriefingSummary {
+  week: string;
+  dates: string;
+  signalsCount: number;
+  criticalSignals: number;
+}
+
 export interface PartnershipSummary {
   slug: string;
   name: string;
@@ -141,6 +148,40 @@ export function useBriefingContent(date: string | null) {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [date]);
+
+  return { content, loading };
+}
+
+export function useWeeklyBriefings() {
+  const [briefings, setBriefings] = useState<WeeklyBriefingSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(() => {
+    fetch(`${API_BASE}/api/intel/briefings/weekly`)
+      .then((r) => r.json())
+      .then((data) => setBriefings(data.briefings ?? []))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  return { briefings, loading, refresh };
+}
+
+export function useWeeklyBriefingContent(week: string | null) {
+  const [content, setContent] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!week) { setContent(null); return; }
+    setLoading(true);
+    fetch(`${API_BASE}/api/intel/briefings/weekly/${week}`)
+      .then((r) => r.json())
+      .then((data) => setContent(data.content ?? null))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [week]);
 
   return { content, loading };
 }
