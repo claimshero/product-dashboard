@@ -1,3 +1,13 @@
+export interface Attachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  kind: "image" | "document" | "text";
+  /** URL the client can fetch (served by the chat server at /attachments/...) */
+  url: string;
+}
+
 export interface Message {
   role: "user" | "assistant";
   content: string;
@@ -5,6 +15,8 @@ export interface Message {
   blocks?: MessageBlock[];
   /** Final result stats — cost, tokens, duration */
   result?: ResultStats;
+  /** Files the user attached to this message */
+  attachments?: Attachment[];
 }
 
 export type MessageBlock =

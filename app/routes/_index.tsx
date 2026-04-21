@@ -15,7 +15,7 @@ import { useAllTasks } from "~/hooks/useTasks";
 import { useMeetings } from "~/hooks/useMeetings";
 import { useClientsPartners } from "~/hooks/useClientsPartners";
 import { usePriorities } from "~/hooks/usePriorities";
-import { useCompetitors, useBriefings, useIntelPartnerships, useMarketSignals } from "~/hooks/useIntel";
+import { useCompetitors, useBriefings, useWeeklyBriefings, useIntelPartnerships, useMarketSignals } from "~/hooks/useIntel";
 import type { NavNode } from "~/types/navigation";
 import { navNodeToSelectedItem } from "~/types/navigation";
 import type { Task } from "~/types/tasks";
@@ -182,6 +182,7 @@ export default function Index() {
   // Intelligence hooks
   const { competitors, refresh: refreshCompetitors } = useCompetitors();
   const { briefings, refresh: refreshBriefings } = useBriefings();
+  const { briefings: weeklyBriefings, refresh: refreshWeeklyBriefings } = useWeeklyBriefings();
   const { partnerships: intelPartnerships, refresh: refreshIntelPartnerships } = useIntelPartnerships();
   const { signals: marketSignals, refresh: refreshMarketSignals } = useMarketSignals();
 
@@ -309,6 +310,7 @@ export default function Index() {
   const handleIntelRefresh = () => {
     refreshCompetitors();
     refreshBriefings();
+    refreshWeeklyBriefings();
     refreshIntelPartnerships();
     refreshMarketSignals();
   };
@@ -422,6 +424,7 @@ export default function Index() {
           <IntelNavTree
             competitors={competitors}
             briefings={briefings}
+            weeklyBriefings={weeklyBriefings}
             partnerships={intelPartnerships}
             marketSignals={marketSignals}
             selectedNode={selectedNode}

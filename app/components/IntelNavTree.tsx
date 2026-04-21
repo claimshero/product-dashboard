@@ -2,11 +2,12 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { ScrollArea, Badge, Loader, TextInput, ActionIcon, Tooltip } from "@mantine/core";
 import type { NavNode } from "~/types/navigation";
 import { navNodeId } from "~/types/navigation";
-import type { CompetitorSummary, BriefingSummary, PartnershipSummary, IntelSignal } from "~/hooks/useIntel";
+import type { CompetitorSummary, BriefingSummary, WeeklyBriefingSummary, PartnershipSummary, IntelSignal } from "~/hooks/useIntel";
 
 interface IntelNavTreeProps {
   competitors: CompetitorSummary[];
   briefings: BriefingSummary[];
+  weeklyBriefings: WeeklyBriefingSummary[];
   partnerships: PartnershipSummary[];
   marketSignals: IntelSignal[];
   selectedNode: NavNode | null;
@@ -111,6 +112,7 @@ function SectionHeader({
 export function IntelNavTree({
   competitors,
   briefings,
+  weeklyBriefings,
   partnerships,
   marketSignals,
   selectedNode,
@@ -119,7 +121,7 @@ export function IntelNavTree({
   onRefresh,
 }: IntelNavTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(
-    new Set(["section:briefings", "section:competitors"])
+    new Set(["section:briefings", "section:competitors", "briefings:daily"])
   );
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -207,26 +209,71 @@ export function IntelNavTree({
             Briefings
           </SectionHeader>
 
-          {expanded.has("section:briefings") &&
-            filteredBriefings.map((briefing) => {
-              const node: NavNode = { type: "briefing", date: briefing.date };
-              return (
-                <TreeRow
-                  key={briefing.date}
-                  depth={0}
-                  selected={isSelected(node)}
-                  onClick={() => onSelectNode(node)}
-                >
-                  <span className="truncate">{briefing.date}</span>
-                  {briefing.criticalSignals > 0 && (
-                    <Badge size="xs" variant="filled" color="red" styles={{ root: { flexShrink: 0, textTransform: "none", fontWeight: 500 } }}>
-                      {briefing.criticalSignals} critical
-                    </Badge>
-                  )}
-                  <span className="ml-auto text-xs opacity-40">{briefing.signalsCount} signals</span>
-                </TreeRow>
-              );
-            })}
+          {expanded.has("section:briefings") && (
+            <>
+              {/* Weekly sub-section */}
+              <TreeRow
+                depth={0}
+                onClick={() => toggle("briefings:weekly")}
+              >
+                <ChevronIcon expanded={expanded.has("briefings:weekly")} />
+                <span className="text-xs font-semibold" style={{ color: "var(--mantine-color-dark-1)" }}>Weekly Leadership</span>
+                <span className="ml-auto text-xs opacity-40">{weeklyBriefings.length}</span>
+              </TreeRow>
+
+              {expanded.has("briefings:weekly") &&
+                weeklyBriefings.map((wb) => {
+                  const node: NavNode = { type: "weekly-briefing", week: wb.week, dates: wb.dates };
+                  return (
+                    <TreeRow
+                      key={wb.week}
+                      depth={1}
+                      selected={isSelected(node)}
+                      onClick={() => onSelectNode(node)}
+                    >
+                      <span className="truncate">{wb.dates || wb.week}</span>
+                      {wb.criticalSignals > 0 && (
+                        <Badge size="xs" variant="filled" color="red" styles={{ root: { flexShrink: 0, textTransform: "none", fontWeight: 500 } }}>
+                          {wb.criticalSignals} critical
+                        </Badge>
+                      )}
+                      <span className="ml-auto text-xs opacity-40">{wb.signalsCount} signals</span>
+                    </TreeRow>
+                  );
+                })}
+
+              {/* Daily sub-section */}
+              <TreeRow
+                depth={0}
+                onClick={() => toggle("briefings:daily")}
+              >
+                <ChevronIcon expanded={expanded.has("briefings:daily")} />
+                <span className="text-xs font-semibold" style={{ color: "var(--mantine-color-dark-1)" }}>Daily</span>
+                <span className="ml-auto text-xs opacity-40">{filteredBriefings.length}</span>
+              </TreeRow>
+
+              {expanded.has("briefings:daily") &&
+                filteredBriefings.map((briefing) => {
+                  const node: NavNode = { type: "briefing", date: briefing.date };
+                  return (
+                    <TreeRow
+                      key={briefing.date}
+                      depth={1}
+                      selected={isSelected(node)}
+                      onClick={() => onSelectNode(node)}
+                    >
+                      <span className="truncate">{briefing.date}</span>
+                      {briefing.criticalSignals > 0 && (
+                        <Badge size="xs" variant="filled" color="red" styles={{ root: { flexShrink: 0, textTransform: "none", fontWeight: 500 } }}>
+                          {briefing.criticalSignals} critical
+                        </Badge>
+                      )}
+                      <span className="ml-auto text-xs opacity-40">{briefing.signalsCount} signals</span>
+                    </TreeRow>
+                  );
+                })}
+            </>
+          )}
 
           {/* === Competitors === */}
           <SectionHeader
