@@ -32,9 +32,12 @@ Copy the example env file and fill in your values:
 cp .env.example .env
 ```
 
-**Required:**
-- `OBSIDIAN_VAULT_PATH` — absolute path to your Obsidian vault
+**Required (dual-vault setup):**
+- `OBSIDIAN_PERSONAL_VAULT_PATH` — absolute path to the local-only personal vault (Daily notes, Tasks, raw meeting notes)
+- `OBSIDIAN_CLAIMABLE_VAULT_PATH` — absolute path to the team-shared vault (Product, Business, Reference, Templates, Agents). Synced via Obsidian Sync.
 - `ANTHROPIC_API_KEY` — your Anthropic API key (for Claude Agent SDK)
+
+During the transition to a physically split vault, `OBSIDIAN_VAULT_PATH` can be set as a fallback — it's used for either vault if the dedicated var is missing.
 
 **Optional:**
 - `USER_NAME` — your name (used in AI prompts, defaults to "User")
@@ -108,7 +111,8 @@ The `agents/` directory contains Claude agent templates. These work standalone w
 
 1. Copy agent files to `~/.claude/agents/`
 2. Replace placeholder variables in each file:
-   - `$OBSIDIAN_VAULT_PATH` — your vault's absolute path
+   - `$PERSONAL_VAULT_PATH` — absolute path to the personal (local-only) vault (meeting-processor only)
+   - `$CLAIMABLE_VAULT_PATH` — absolute path to the team-shared Claimable vault
    - `$JIRA_CLOUD_ID` — your Atlassian Cloud ID (run `getAccessibleAtlassianResources` MCP tool)
    - `$JIRA_DISCOVERY_PROJECT` — JIRA discovery project key (e.g., `DB`)
    - `$JIRA_DELIVERY_PROJECT` — JIRA delivery project key (e.g., `MVP`)

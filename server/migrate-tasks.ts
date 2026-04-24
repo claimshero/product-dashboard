@@ -8,7 +8,7 @@
 import fs from "fs";
 import path from "path";
 import { resolveCategory, ensureTaskFile } from "./task-files.js";
-import { config, DAILY_NOTES_DIR, TASKS_DIR } from "./config.js";
+import { DAILY_NOTES_DIR, TASKS_DIR, TEMPLATE_PATH } from "./config.js";
 
 const DAILY_DIR = DAILY_NOTES_DIR;
 
@@ -260,14 +260,13 @@ if (execute) {
   console.log(`Updated ${dailyUpdates.length} daily notes with activity logs`);
 
   // 6. Update the daily note template
-  const templatePath = path.join(config.vaultPath, config.dailyNoteTemplate);
-  if (fs.existsSync(templatePath)) {
-    const templateContent = fs.readFileSync(templatePath, "utf-8");
+  if (fs.existsSync(TEMPLATE_PATH)) {
+    const templateContent = fs.readFileSync(TEMPLATE_PATH, "utf-8");
     const updatedTemplate = templateContent.replace(
       /## Tasks\n\n- \[ \] /,
       "## Tasks\n### Created\n\n### Completed"
     );
-    fs.writeFileSync(templatePath, updatedTemplate, "utf-8");
+    fs.writeFileSync(TEMPLATE_PATH, updatedTemplate, "utf-8");
     console.log("Updated daily note template");
   }
 
