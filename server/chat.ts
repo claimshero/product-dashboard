@@ -5,7 +5,7 @@ import os from "os";
 import path from "path";
 import multer from "multer";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { config, ATTACHMENTS_DIR } from "./config.js";
+import { config, ATTACHMENTS_DIR, APP_SUPPORT_DIR } from "./config.js";
 import {
   saveAttachments,
   buildPromptWithAttachments,
@@ -33,8 +33,6 @@ import { intelRouter } from "./intel.js";
 import { startScheduler } from "./scheduler.js";
 import { loadTaskDefinitions, createTaskDefinitionWithId, updateTaskDefinition } from "./scheduled-tasks.js";
 import {
-  OBSIDIAN_VAULT_PATH,
-  APP_SUPPORT_DIR,
   CHAT_SYSTEM_PROMPT,
   DAILY_BRIEFING_PROMPT,
   DAILY_BRIEFING_SYSTEM_PROMPT,
@@ -358,7 +356,7 @@ app.post("/api/chat", uploadAttachments.array("attachments"), async (req, res) =
       options: {
         permissionMode: "bypassPermissions",
         includePartialMessages: true,
-        additionalDirectories: [OBSIDIAN_VAULT_PATH, APP_SUPPORT_DIR, path.join(os.homedir(), ".claude/agents")],
+        additionalDirectories: [config.personalVaultPath, config.claimableVaultPath, APP_SUPPORT_DIR, path.join(os.homedir(), ".claude/agents")],
         mcpServers,
         systemPrompt: buildSystemPrompt(context),
         ...(sessionId ? { resume: sessionId } : {}),
